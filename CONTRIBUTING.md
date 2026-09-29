@@ -8,6 +8,16 @@ Submitting a pull request does not guarantee review or acceptance. Maintainers
 may decline or close work that does not fit the project's scope, priorities,
 or maintenance budget, even when the code is technically sound.
 
+Anyone with a GitHub account may open an issue or propose a pull request from
+a fork. Merge access is limited to the repository owner and invited
+maintainers; contributors do not need collaborator access. Report suspected
+vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+Fork pull request workflows may wait for maintainer approval. Maintainers
+should inspect the proposed changes, including workflows, dependencies, and
+install scripts, before approving a run. Workflow approval permits execution
+of the proposed code; it does not approve merging the pull request.
+
 ## Start With Scope
 
 Before starting work:
