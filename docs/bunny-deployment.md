@@ -5,8 +5,9 @@ This guide covers deployment to bunny.net. You can also upload the production
 
 Use a hostname such as **https://game.example.com** for your deployment.
 Replace the example domain and zone names below with your own values.
-The provided GitHub Actions workflow builds the current `main`, validates it,
-and uploads only the contents of `dist/` to Bunny Storage. A dedicated Pull Zone
+The provided GitHub Actions workflow waits for successful **Game checks** on
+the current `main`, builds it, and uploads only the contents of `dist/` to Bunny
+Storage. A dedicated Pull Zone
 serves those files through Bunny CDN.
 
 For your own deployment, update the workflow's `environment.url` and summary
@@ -156,7 +157,7 @@ their own environment and zones; they do not receive this repository's secrets.
 1. After merging the deployment workflow into `main` and finishing the setup,
    open **Actions → Deploy live preview → Run workflow** and select **`main`**.
    This also retries a failed upload after fixing configuration.
-2. Check that installation, game validation, and uploads succeed.
+2. Check that the main CI gate, installation, build, and uploads succeed.
    The run summary records the actual deployed commit.
 3. Visit the default `b-cdn.net` hostname and your custom hostname
    (for example, **https://game.example.com/**).
@@ -185,6 +186,11 @@ build input outside the existing path filters, update
 Deployment runs are serialized and active uploads are not cancelled by new
 pushes. A queued or manually retried run builds the latest `main`, so rerunning
 an older workflow cannot roll the site back to that run's old game snapshot.
+The runner waits up to ten minutes for the checked-out revision's push CI. A
+failed, cancelled, or missing CI run prevents upload; rerun failed **Game checks**
+first, then retry deployment. Deployment does not reinstall browsers or rerun
+the test suite. Require **Game checks** in your `main` branch protection so
+changes receive their relevant validation before merging.
 
 For upload HTTP 401 errors, check the storage-zone password and regional host.
 For stale content, confirm both HTML cache-rule actions are active; if content
