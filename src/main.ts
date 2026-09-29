@@ -1,8 +1,9 @@
+import type { GameStatus, Level, Point, Tool } from './types.ts';
 import './style.css';
-import { Game } from './engine.js';
-import { LEVELS } from './levels.js';
-import { Renderer } from './renderer.js';
-import { AudioEngine } from './audio.js';
+import { Game } from './engine.ts';
+import { LEVELS } from './levels.ts';
+import { Renderer } from './renderer.ts';
+import { AudioEngine } from './audio.ts';
 
 const icons = {
   logo: '<path d="m4 15 8-10 8 10-8 5z"/><path d="m4 10 8 5 8-5M12 15v5"/>',
@@ -19,8 +20,8 @@ const icons = {
   arrow: '<path d="M4 12h16m-6-6 6 6-6 6"/>', gear: '<path d="m9 3-1 3-3 1-2 4 2 3 1 4 4 3 4-1 4-2 1-4 2-3-2-4-4-1-2-3z"/><circle cx="12" cy="12" r="3"/>',
   edit: '<path d="m4 16 12-12 4 4L8 20H4zM13 7l4 4"/>', close: '<path d="m6 6 12 12M6 18 18 6"/>',
 };
-const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] || icons.gear}</svg>`;
-const toolInfo = [
+const icon = (name: keyof typeof icons) => `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[name] || icons.gear}</svg>`;
+const toolInfo: { id: Tool; name: string; label: string; desc: string; key: string }[] = [
   { id:'laser', name:'Laser', label:'Cut a path', desc:'Cuts a horizontal tunnel through rock ahead. Steel stops the beam.', key:'1' },
   { id:'drill', name:'Drill', label:'Go underground', desc:'Drills straight down through rock. Reassign another tool to stop digging.', key:'2' },
   { id:'missile', name:'Missile', label:'Clear the way', desc:'Fires an explosive projectile ahead to blast a crater. Steel survives.', key:'3' },
@@ -28,23 +29,27 @@ const toolInfo = [
   { id:'block', name:'Blocker', label:'Redirect traffic', desc:'Stops a drone and turns others around. Select Blocker again to release it for free.', key:'5' },
   { id:'boost', name:'Jets', label:'Land safely', desc:'Equips permanent landing jets to survive long falls. Assign to each drone that needs them.', key:'6' },
 ];
-const $ = (s) => document.querySelector(s);
-let progress = {};
+function $<T extends HTMLElement = HTMLElement>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  if (!element) throw new Error(`Missing required element: ${selector}`);
+  return element;
+}
+let progress: Record<number, { completed?: boolean; score?: number; saved?: number }> = {};
 let muted = false;
 try { progress = JSON.parse(localStorage.getItem('neon-convoy-progress') || '{}'); muted = localStorage.getItem('neon-convoy-muted') === 'true'; } catch { /* Storage is optional. */ }
 if (!progress || typeof progress !== 'object' || Array.isArray(progress)) progress = {};
 let levelIndex = 0;
 let game = new Game(LEVELS[0]);
-let selectedTool = 'laser';
-let hover = null;
+let selectedTool: Tool = 'laser';
+let hover: Point | null = null;
 let editing = false;
 let brushMode = 'erase';
 let brushSize = 24;
 let drawing = false;
-let lastStatus = 'ready';
+let lastStatus: GameStatus = 'ready';
 let lastTick = performance.now();
 let modalWasRunning = false;
-let toastTimer;
+let toastTimer: ReturnType<typeof setTimeout> | undefined;
 const audio = new AudioEngine();
 audio.setMuted(muted);
 
@@ -83,12 +88,12 @@ $('#app').innerHTML = `
   </main>
   <dialog id="modal"><button id="modal-close" class="icon-button modal-close" aria-label="Close dialog">${icon('close')}</button><div id="modal-content"></div></dialog>
 `;
-const canvas = $('#game');
+const canvas = $<HTMLCanvasElement>('#game');
 const renderer = new Renderer(canvas);
-function difficultyLabel(level) { return ['FOUNDATIONS','TRAINING','TACTICAL','ADVANCED','EXPERT'][Number(level.difficulty)-1] || level.difficulty || 'TACTICAL'; }
-function pad(v, n = 2) { return String(Math.max(0, Math.floor(v || 0))).padStart(n,'0'); }
-function clock(v) { return `${pad(Math.floor(Math.max(0,v) / 60))}:${pad(Math.max(0,v) % 60)}`; }
-function notify(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').hidden = true, 3300); }
+function difficultyLabel(level: Level) { return ['FOUNDATIONS','TRAINING','TACTICAL','ADVANCED','EXPERT'][Number(level.difficulty)-1] || level.difficulty || 'TACTICAL'; }
+function pad(v: number, n = 2) { return String(Math.max(0, Math.floor(v || 0))).padStart(n,'0'); }
+function clock(v: number) { return `${pad(Math.floor(Math.max(0,v) / 60))}:${pad(Math.max(0,v) % 60)}`; }
+function notify(message: string) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').hidden = true, 3300); }
 function save() { try { localStorage.setItem('neon-convoy-progress',JSON.stringify(progress)); } catch { /* Private browsing may disable persistence. */ } }
 function drawLevels() {
   const completed = LEVELS.filter(l => progress[l.id]?.completed).length;
@@ -96,10 +101,10 @@ function drawLevels() {
   $('#campaign-percent').textContent = `${completed * 10}%`;
   $('#campaign-fill').style.width = `${completed * 10}%`;
   $('#levels').innerHTML = LEVELS.map((l,i) => `<button class="level-card ${i === levelIndex ? 'current' : ''} ${progress[l.id]?.completed ? 'completed' : ''}" data-level="${i}" ${i === levelIndex ? 'aria-current="step"' : ''}><span class="level-number">${pad(i+1)}</span><span class="level-card-title"><strong>${l.name}</strong><small>${difficultyLabel(l)}</small></span><span class="level-status">${progress[l.id]?.completed ? '✓' : i === levelIndex ? '↗' : '·'}</span></button>`).join('');
-  document.querySelectorAll('[data-level]').forEach(b => b.addEventListener('click', () => loadLevel(Number(b.dataset.level))));
+  document.querySelectorAll<HTMLButtonElement>('[data-level]').forEach(b => b.addEventListener('click', () => loadLevel(Number(b.dataset.level))));
 }
-function loadLevel(index) {
-  if ($('#modal').open) $('#modal').close();
+function loadLevel(index: number) {
+  if ($<HTMLDialogElement>('#modal').open) $<HTMLDialogElement>('#modal').close();
   modalWasRunning = false;
   levelIndex = index;
   game = new Game(LEVELS[index]);
@@ -127,12 +132,12 @@ function updateTools() {
     const b = $(`[data-tool="${t.id}"]`);
     b.setAttribute('aria-pressed',String(selectedTool === t.id));
     b.classList.toggle('depleted',!game.inventory[t.id]);
-    $(`#count-${t.id}`).textContent = game.inventory[t.id] ?? 0;
+    $(`#count-${t.id}`).textContent = String(game.inventory[t.id] ?? 0);
   }
   const tool = toolInfo.find(t => t.id === selectedTool);
-  $('#tool-description').textContent = `${tool.name} — ${tool.desc}`;
+  $('#tool-description').textContent = `${tool!.name} — ${tool!.desc}`;
 }
-function selectTool(id) { selectedTool = id; updateTools(); if(editing) finishEdit(); }
+function selectTool(id: Tool) { selectedTool = id; updateTools(); if(editing) finishEdit(); }
 function updateHUD() {
   $('#saved').textContent = pad(game.saved);
   $('#rescue-total').textContent = `/ ${game.level.total}`;
@@ -142,7 +147,7 @@ function updateHUD() {
   $('#timer').textContent = clock(game.remaining);
   $('#timer').classList.toggle('urgent',game.remaining < 30);
   $('#score').textContent = pad(game.score,5);
-  $('#best').textContent = game.sandbox ? 'TERRAIN LAB · UNRANKED' : `PERSONAL BEST ${progress[game.level.id]?.score ? pad(progress[game.level.id].score,5) : '—'}`;
+  $('#best').textContent = game.sandbox ? 'TERRAIN LAB · UNRANKED' : `PERSONAL BEST ${progress[game.level.id]?.score ? pad(progress[game.level.id].score ?? 0,5) : '—'}`;
   $('#start-banner').hidden = game.status !== 'ready' || editing;
   $('#pause-label').hidden = !game.paused || game.status !== 'running' || editing;
   const running = game.status === 'running' && !game.paused;
@@ -159,15 +164,15 @@ async function playPause() {
   audio.setPaused(game.paused || game.status !== 'running');
   updateHUD();
 }
-function openModal(html, pause = true) {
+function openModal(html: string, pause = true) {
   modalWasRunning = pause && game.status === 'running' && !game.paused;
   if (modalWasRunning) { game.togglePause(); audio.setPaused(true); }
   $('#modal-content').innerHTML = html;
-  if (!$('#modal').open) $('#modal').showModal();
+  if (!$<HTMLDialogElement>('#modal').open) $<HTMLDialogElement>('#modal').showModal();
   updateHUD();
 }
-function closeModal() { $('#modal').close(); }
-$('#modal').addEventListener('close', () => { if (modalWasRunning && game.status === 'running' && game.paused) { game.togglePause(); audio.setPaused(false); } modalWasRunning = false; });
+function closeModal() { $<HTMLDialogElement>('#modal').close(); }
+$<HTMLDialogElement>('#modal').addEventListener('close', () => { if (modalWasRunning && game.status === 'running' && game.paused) { game.togglePause(); audio.setPaused(false); } modalWasRunning = false; });
 $('#modal-close').onclick = closeModal;
 function showResult() {
   const won = game.status === 'won';
@@ -190,17 +195,17 @@ $('#pause').onclick = playPause;
 $('#speed').onclick = () => { game.speed = game.speed === 2 ? 1 : 2; updateHUD(); };
 $('#restart').onclick = () => loadLevel(levelIndex);
 $('#sound').onclick = toggleMusic;
-$('#hint').onclick = () => openModal(`<div class="section-eyebrow">TACTICAL INTELLIGENCE</div><h2>A little guidance.</h2><p>${game.level.hint}</p><p class="muted-copy">Pause with Space to assign tools precisely. Restart any time with R.</p><button class="primary-button" id="hint-close">Back to the convoy</button>`) || ($('#hint-close').onclick = closeModal);
+$('#hint').onclick = () => { openModal(`<div class="section-eyebrow">TACTICAL INTELLIGENCE</div><h2>A little guidance.</h2><p>${game.level.hint}</p><p class="muted-copy">Pause with Space to assign tools precisely. Restart any time with R.</p><button class="primary-button" id="hint-close">Back to the convoy</button>`); $('#hint-close').onclick = closeModal; };
 $('#help').onclick = () => openModal(`<div class="section-eyebrow">COMMANDER'S FIELD GUIDE</div><h2>Autonomous. Not invincible.</h2><p>Your drones drive forward, turn at walls, and roll off edges. Guide enough of them into the coral extraction gate before time runs out.</p><ol class="instructions"><li><strong>Deploy your convoy.</strong> Drones roll out one by one. Watch the terrain before giving orders.</li><li><strong>Select a tool. Click a drone.</strong> Each assignment uses one charge. Laser and drill reshape rock; bridges build a route.</li><li><strong>Pause and plan.</strong> Space pauses; you can still assign tools. Blockers redirect traffic; jets protect against long falls.</li><li><strong>Bring them home.</strong> Meet the rescue target. More rescues, spare tools, and remaining time improve your score.</li></ol><div class="shortcuts"><span><kbd>1–6</kbd> Select tool</span><span><kbd>Space</kbd> Pause</span><span><kbd>F</kbd> 2× speed</span><span><kbd>R</kbd> Restart</span><span><kbd>M</kbd> Music</span></div><p class="muted-copy">Violet rock is destructible. Striped steel is permanent. Orange hazards are fatal. Terrain lab lets you paint and erase terrain in an unranked practice run.</p>`);
-$('#settings').onclick = () => { openModal(`<div class="section-eyebrow">CONTROL ROOM</div><h2>Set the atmosphere.</h2><p>Each sector has its own original, looping synthwave sequence.</p><label class="volume-label">Music volume <input id="volume" type="range" min="0" max="1" step="0.05" value="${audio.volume ?? 0.4}" /></label><button class="secondary-button" id="settings-sound">${muted ? 'Enable music' : 'Mute music'}</button><p class="muted-copy">Progress saves automatically in this browser. All ten sectors are available from the campaign list.</p>`); $('#volume').oninput = e => audio.setVolume(Number(e.target.value)); $('#settings-sound').onclick = () => { toggleMusic(); $('#settings-sound').textContent = muted ? 'Enable music' : 'Mute music'; }; };
+$('#settings').onclick = () => { openModal(`<div class="section-eyebrow">CONTROL ROOM</div><h2>Set the atmosphere.</h2><p>Each sector has its own original, looping synthwave sequence.</p><label class="volume-label">Music volume <input id="volume" type="range" min="0" max="1" step="0.05" value="${audio.volume ?? 0.4}" /></label><button class="secondary-button" id="settings-sound">${muted ? 'Enable music' : 'Mute music'}</button><p class="muted-copy">Progress saves automatically in this browser. All ten sectors are available from the campaign list.</p>`); $('#volume').oninput = e => audio.setVolume(Number((e.target as HTMLInputElement).value)); $('#settings-sound').onclick = () => { toggleMusic(); $('#settings-sound').textContent = muted ? 'Enable music' : 'Mute music'; }; };
 $('#credits').onclick = () => openModal(`<div class="section-eyebrow">FIELD NOTES / 001</div><h2>Inspired by a classic.<br>Built for a new convoy.</h2><p>Neon Convoy is an original browser puzzle game inspired by the autonomous crowds, limited skill assignments, and terrain puzzles of Lemmings (1991). The drones, levels, art, and synthesized music here are original.</p><p>Research references: <a href="https://en.wikipedia.org/wiki/Lemmings_(video_game)" target="_blank" rel="noreferrer">Wikipedia: Lemmings</a> and <a href="https://www.youtube.com/watch?v=RnPXf3r5IKc" target="_blank" rel="noreferrer">1991 gameplay, levels 1–60</a>.</p><p class="muted-copy">Not affiliated with the owners of Lemmings. Made with Canvas 2D, Web Audio, and a little human instinct.</p>`);
 $('#sandbox').onclick = () => { if (editing) { finishEdit(); return; } if(['won','lost'].includes(game.status)) loadLevel(levelIndex); editing = true; if(game.status==='running' && !game.paused) game.togglePause(); audio.setPaused(true); $('#editor').hidden=false; $('#sandbox').setAttribute('aria-pressed','true'); notify('Paint directly on the battlefield. Press Play when your route is ready.'); updateHUD(); };
 $('#finish-edit').onclick = finishEdit;
-document.querySelectorAll('[data-brush]').forEach(b => b.onclick = () => { brushMode = b.dataset.brush; document.querySelectorAll('[data-brush]').forEach(x=>x.setAttribute('aria-pressed',String(x===b))); });
-$('#brush-size').oninput = e => brushSize=Number(e.target.value);
-document.querySelectorAll('[data-tool]').forEach(b => b.onclick=()=>selectTool(b.dataset.tool));
-function worldPoint(e) { const r=canvas.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*1200,y:(e.clientY-r.top)/r.height*600}; }
-function paint(p) { game.editTerrain(p.x,p.y,brushMode,brushSize); updateHUD(); }
+document.querySelectorAll<HTMLButtonElement>('[data-brush]').forEach(b => b.onclick = () => { brushMode = b.dataset.brush || 'erase'; document.querySelectorAll<HTMLButtonElement>('[data-brush]').forEach(x=>x.setAttribute('aria-pressed',String(x===b))); });
+$('#brush-size').oninput = e => brushSize=Number((e.target as HTMLInputElement).value);
+document.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach(b => b.onclick=()=>selectTool(b.dataset.tool as Tool));
+function worldPoint(e: PointerEvent) { const r=canvas.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*1200,y:(e.clientY-r.top)/r.height*600}; }
+function paint(p: Point) { game.editTerrain(p.x,p.y,brushMode,brushSize); updateHUD(); }
 canvas.addEventListener('pointermove',e=>{hover=worldPoint(e); if(editing && drawing) paint(hover);});
 canvas.addEventListener('pointerleave',()=>hover=null);
 canvas.addEventListener('pointerdown',e=>{
@@ -210,13 +215,13 @@ canvas.addEventListener('pointerdown',e=>{
   if(game.status!=='running') { notify('Deploy the convoy to begin assigning tools.'); return; }
   const drone=game.droneAt(hover.x,hover.y);
   if(!drone) { notify('Click a drone to assign the selected tool.'); return; }
-  if(game.assign(drone.id,selectedTool)) { audio.playEffect(selectedTool); notify(`${toolInfo.find(t=>t.id===selectedTool).name} assigned to drone ${pad(drone.id)}.`); updateTools(); }
+  if(game.assign(drone.id,selectedTool)) { audio.playEffect(selectedTool); notify(`${toolInfo.find(t=>t.id===selectedTool)!.name} assigned to drone ${pad(drone.id)}.`); updateTools(); }
   else notify('Assignment unavailable. Check your charges or choose another drone.');
 });
 canvas.addEventListener('pointerup',()=>drawing=false);
 canvas.addEventListener('pointercancel',()=>drawing=false);
 document.addEventListener('keydown',e=>{
-  if($('#modal').open || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  if($<HTMLDialogElement>('#modal').open || /INPUT|TEXTAREA|SELECT/.test((e.target instanceof Element ? e.target.tagName : ''))) return;
   if(e.repeat) return;
   if(e.code==='Space') { e.preventDefault(); playPause(); }
   else if(/^[1-6]$/.test(e.key)) selectTool(toolInfo[Number(e.key)-1].id);
@@ -225,7 +230,7 @@ document.addEventListener('keydown',e=>{
   else if(e.key.toLowerCase()==='f') $('#speed').click();
 });
 document.addEventListener('visibilitychange',()=>{if(document.hidden && game.status==='running' && !game.paused) {game.togglePause(); audio.setPaused(true);}});
-function frame(now) {
+function frame(now: number) {
   const dt=Math.min((now-lastTick)/1000,0.05); lastTick=now;
   game.update(dt);
   renderer.render(game,{selectedTool,hover,editing,brushMode,brushSize});

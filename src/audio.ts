@@ -11,7 +11,7 @@ const SONGS = [
   { root: 36, bpm: 128, progression: [0, 8, 10, 7], melody: [0, 7, 12, 15, 19, 15, 12, 7], bass: [0, 7, 8, 15, 10, 17, 7, 12] },
 ];
 
-function frequency(note) {
+function frequency(note: number) {
   return 440 * 2 ** ((note - 69) / 12);
 }
 
@@ -22,6 +22,19 @@ function audioContextClass() {
 
 /** Original procedural score and short game effects. Audio starts only after unlock(). */
 export class AudioEngine {
+  context: AudioContext | null;
+  master: GainNode | null;
+  music: GainNode | null;
+  effects: GainNode | null;
+  noise: AudioBuffer | null;
+  timer: ReturnType<typeof setInterval> | null;
+  muted: boolean;
+  volume: number;
+  paused: boolean;
+  level: number;
+  step: number;
+  nextTime: number;
+  destroyed: boolean;
   constructor() {
     this.context = null;
     this.master = null;
@@ -94,7 +107,7 @@ export class AudioEngine {
     this.master.gain.setTargetAtTime(value, this.context.currentTime, .025);
   }
 
-  setLevel(index) {
+  setLevel(index: number) {
     const next = Math.max(0, Math.min(SONGS.length - 1, Math.trunc(Number(index) || 0)));
     if (this.level === next) return;
     this.level = next;
@@ -102,17 +115,17 @@ export class AudioEngine {
     if (this.context) this.nextTime = this.context.currentTime + .08;
   }
 
-  setMuted(value) {
+  setMuted(value: boolean) {
     this.muted = Boolean(value);
     this.updateVolume();
   }
 
-  setVolume(value) {
+  setVolume(value: number) {
     this.volume = Math.max(0, Math.min(1, Number(value) || 0));
     this.updateVolume();
   }
 
-  setPaused(value) {
+  setPaused(value: boolean) {
     this.paused = Boolean(value);
     if (!this.context || !this.music) return;
     const now = this.context.currentTime;
@@ -133,8 +146,9 @@ export class AudioEngine {
     }
   }
 
-  tone(type, pitch, start, duration, gain, destination, { attack = .005, release = .12, detune = 0, cutoff } = {}) {
+  tone(type: OscillatorType, pitch: number, start: number, duration: number, gain: number, destination: AudioNode | null, { attack = .005, release = .12, detune = 0, cutoff }: { attack?: number; release?: number; detune?: number; cutoff?: number } = {}) {
     const ctx = this.context;
+    if (!ctx || !destination) throw new Error('Audio must be unlocked before playing a tone');
     const oscillator = ctx.createOscillator();
     oscillator.type = type;
     oscillator.frequency.setValueAtTime(pitch, start);
@@ -157,9 +171,10 @@ export class AudioEngine {
     return oscillator;
   }
 
-  noiseHit(start, duration, gain, cutoff, highpass = true, destination = this.music) {
+  noiseHit(start: number, duration: number, gain: number, cutoff: number, highpass = true, destination: AudioNode | null = this.music) {
     if (!this.noise) return;
     const ctx = this.context;
+    if (!ctx || !destination) return;
     const source = ctx.createBufferSource();
     source.buffer = this.noise;
     const filter = ctx.createBiquadFilter();
@@ -173,19 +188,19 @@ export class AudioEngine {
     source.onended = () => { source.disconnect(); filter.disconnect(); envelope.disconnect(); };
   }
 
-  kick(start, gain = .48) {
+  kick(start: number, gain = .48) {
     const ctx = this.context;
     const osc = this.tone('sine', 142, start, .20, gain, this.music, { release: .02 });
     osc.frequency.exponentialRampToValueAtTime(46, start + .18);
   }
 
-  snare(start) {
+  snare(start: number) {
     this.noiseHit(start, .15, .18, 1550);
     const osc = this.tone('triangle', 180, start, .09, .065, this.music, { release: .02 });
     osc.frequency.exponentialRampToValueAtTime(105, start + .09);
   }
 
-  scheduleStep(song, step, time, duration) {
+  scheduleStep(song: typeof SONGS[number], step: number, time: number, duration: number) {
     const beat = step % 16;
     const bar = Math.floor(step / 16);
     const chord = song.progression[bar % song.progression.length];
@@ -222,7 +237,7 @@ export class AudioEngine {
     }
   }
 
-  playEffect(name) {
+  playEffect(name: string) {
     const ctx = this.context;
     if (!ctx || ctx.state !== 'running' || this.muted || this.destroyed) return;
     const now = ctx.currentTime + .005;

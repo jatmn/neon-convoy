@@ -6,17 +6,21 @@
   "description": "A synthwave drone rescue puzzle game with destructible terrain.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build && node scripts/standalone.js",
+    "build": "vite build && node scripts/standalone.ts",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --test tests/engine.test.js",
+    "test": "node --test tests/engine.test.ts tests/ci.test.ts",
     "test:browser": "playwright test",
-    "check": "npm test && npm run build && npm run test:browser"
+    "check": "npm run typecheck && npm test && npm run build && npm run test:browser && npm run test:distribution",
+    "typecheck": "tsc --noEmit",
+    "test:distribution": "playwright test --config playwright.distribution.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
+    "@types/node": "22.20.4",
+    "typescript": "5.9.3",
     "vite": "8.3.1"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.18.0"
   }
 }

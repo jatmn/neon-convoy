@@ -1,3 +1,19 @@
+import type { Game, Terrain } from './engine.ts';
+import type { Drone, Point, Rect, Tool } from './types.ts';
+
+type Surface = HTMLCanvasElement | OffscreenCanvas;
+type Context2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+interface RenderOptions {
+  selectedTool?: Tool; hover?: Point | null; selectedDrone?: Drone | number;
+  editing?: boolean; brushMode?: string; brushSize?: number;
+}
+
+function context2D(canvas: Surface): Context2D {
+  const ctx = canvas.getContext('2d') as Context2D | null;
+  if (!ctx) throw new Error('Canvas 2D is unavailable');
+  return ctx;
+}
+
 const W = 1200;
 const H = 600;
 const TAU = Math.PI * 2;
@@ -9,7 +25,7 @@ const COLORS = {
   ink: '#100e28',
 };
 
-function canvasFor(width, height) {
+function canvasFor(width: number, height: number) {
   const canvas = typeof OffscreenCanvas !== 'undefined'
     ? new OffscreenCanvas(width, height)
     : document.createElement('canvas');
@@ -18,13 +34,13 @@ function canvasFor(width, height) {
   return canvas;
 }
 
-function hash(x, y, seed = 0) {
+function hash(x: number, y: number, seed = 0) {
   let n = Math.imul(x + seed * 17, 374761393) + Math.imul(y + 31, 668265263);
   n = Math.imul(n ^ (n >>> 13), 1274126177);
   return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
 }
 
-function glowLine(ctx, x1, y1, x2, y2, color, width = 2, blur = 12) {
+function glowLine(ctx: Context2D, x1: number, y1: number, x2: number, y2: number, color: string, width = 2, blur = 12) {
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
@@ -39,7 +55,14 @@ function glowLine(ctx, x1, y1, x2, y2, color, width = 2, blur = 12) {
 
 /** Draws the game world at its logical 1200 × 600 resolution. */
 export class Renderer {
-  constructor(canvas) {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D | null;
+  background: Surface | null;
+  terrainImage: Surface | null;
+  terrainStamp: number | null;
+  terrainSource: Terrain | null;
+  sheet: ReturnType<Renderer['makeSpriteSheet']>;
+  constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.background = null;
@@ -61,7 +84,7 @@ export class Renderer {
 
   makeBackground() {
     const canvas = canvasFor(W, H);
-    const ctx = canvas.getContext('2d');
+    const ctx = context2D(canvas);
     const sky = ctx.createLinearGradient(0, 0, 0, H);
     sky.addColorStop(0, '#080b24');
     sky.addColorStop(0.46, '#242044');
@@ -144,7 +167,7 @@ export class Renderer {
     this.background = canvas;
   }
 
-  terrainKey(terrain) {
+  terrainKey(terrain: Terrain) {
     if (Number.isFinite(terrain.revision)) return terrain.revision;
     // Older engines can mutate the same Uint8Array without a revision.
     let value = 2166136261;
@@ -154,10 +177,10 @@ export class Renderer {
     return value >>> 0;
   }
 
-  makeTerrain(terrain) {
+  makeTerrain(terrain: Terrain) {
     const { cells, width, height, cellSize: size } = terrain;
     const canvas = canvasFor(width * size, height * size);
-    const ctx = canvas.getContext('2d');
+    const ctx = context2D(canvas);
     const image = ctx.createImageData(canvas.width, canvas.height);
     const pixels = image.data;
     const stride = canvas.width;
@@ -202,9 +225,9 @@ export class Renderer {
     const frames = 4;
     const sw = 24, sh = 28;
     const sheet = canvasFor(sw * frames, sh * states.length);
-    const c = sheet.getContext('2d');
+    const c = context2D(sheet);
     c.imageSmoothingEnabled = false;
-    const pixel = (x, y, w, h, color) => { c.fillStyle = color; c.fillRect(Math.round(x), Math.round(y), w, h); };
+    const pixel = (x: number, y: number, w: number, h: number, color: string) => { c.fillStyle = color; c.fillRect(Math.round(x), Math.round(y), w, h); };
     states.forEach((state, row) => {
       for (let frame = 0; frame < frames; frame++) {
         c.save(); c.translate(frame * sw, row * sh);
@@ -248,7 +271,7 @@ export class Renderer {
     return { image: sheet, states, sw, sh, frames };
   }
 
-  drawPortal(ctx, x, y, time, type) {
+  drawPortal(ctx: Context2D, x: number, y: number, time: number, type: 'spawn' | 'exit') {
     const spawn = type === 'spawn';
     const color = spawn ? COLORS.cyan : COLORS.coral;
     ctx.save();
@@ -278,7 +301,7 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawHazards(ctx, hazards, time) {
+  drawHazards(ctx: Context2D, hazards: Rect[], time: number) {
     for (const hazard of hazards || []) {
       const { x, y, w, h } = hazard;
       const pulse = .65 + .35 * Math.sin(time * 5 + x);
@@ -296,7 +319,7 @@ export class Renderer {
     }
   }
 
-  drawDrone(ctx, drone, time, selected) {
+  drawDrone(ctx: Context2D, drone: Drone, time: number, selected: boolean) {
     if (drone.alive === false && drone.state !== 'dead') return;
     const { sw, sh, states, frames, image } = this.sheet;
     let state = drone.state || 'walk';
@@ -347,7 +370,7 @@ export class Renderer {
     ctx.restore();
   }
 
-  drawEffects(ctx, game, time) {
+  drawEffects(ctx: Context2D, game: Game, time: number) {
     for (const projectile of game.projectiles || []) {
       const { x, y, vx = 0, vy = 0, kind } = projectile;
       const color = kind === 'missile' ? COLORS.coral : COLORS.cyan;
@@ -388,7 +411,7 @@ export class Renderer {
     }
   }
 
-  drawHover(ctx, hover, tool, editing, time, brushSize = 24) {
+  drawHover(ctx: Context2D, hover: Point, tool: string | undefined, editing: boolean, time: number, brushSize = 24) {
     if (!hover || !Number.isFinite(hover.x) || !Number.isFinite(hover.y)) return;
     const x = Math.round(hover.x / 4) * 4;
     const y = Math.round(hover.y / 4) * 4;
@@ -412,7 +435,7 @@ export class Renderer {
     ctx.restore();
   }
 
-  render(game, { selectedTool, hover = null, selectedDrone, editing = false, brushMode, brushSize = 24 } = {}) {
+  render(game: Game, { selectedTool, hover = null, selectedDrone, editing = false, brushMode, brushSize = 24 }: RenderOptions = {}) {
     const ctx = this.ctx;
     if (!ctx || !game) return;
     if (!this.background) this.makeBackground();
@@ -423,7 +446,7 @@ export class Renderer {
     }
     ctx.setTransform(this.canvas.width / W, 0, 0, this.canvas.height / H, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(this.background, 0, 0);
+    if (this.background) ctx.drawImage(this.background, 0, 0);
     const time = typeof performance !== 'undefined' ? performance.now() / 1000 : game.elapsed || 0;
     if (this.terrainImage) ctx.drawImage(this.terrainImage, 0, 0);
     this.drawHazards(ctx, game.level?.hazards, time);
