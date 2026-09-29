@@ -5,12 +5,14 @@ This guide covers deployment to bunny.net. You can also upload the production
 
 Use a hostname such as **https://game.example.com** for your deployment.
 Replace the example domain and zone names below with your own values.
+Work in a fork or copy of this repository that you own or administer; all GitHub
+setup below applies to that repository and your own Bunny account.
 The provided GitHub Actions workflow waits for successful **Game checks** on
 the current `main`, builds it, and uploads only the contents of `dist/` to Bunny
 Storage. A dedicated Pull Zone
 serves those files through Bunny CDN.
 
-For your own deployment, update the workflow's `environment.url` and summary
+In your fork or copy, update the workflow's `environment.url` and summary
 URL in [`deploy.yml`](../.github/workflows/deploy.yml), and the featured play link
 in [`README.md`](../README.md), to your chosen hostname.
 
@@ -137,12 +139,16 @@ for public repositories on current GitHub plans. Private repositories require
 GitHub Pro, Team, or Enterprise. If **Environments** is missing, check your
 repository access, visibility, and plan before proceeding.
 
+For a fork, open **Actions** in your fork and enable GitHub Actions before
+pushing your deployment configuration changes. GitHub documents this in
+[workflows in forked repositories](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflows-in-forked-repositories).
+The supplied workflows use `main`; keep it as your repository's default branch
+when following this guide without changing the workflows.
+
 ### Create or open the deployment environment
 
 1. Open **your repository → Settings**. If the tab is hidden, use the repository
    tab dropdown to find it. In the Settings sidebar, click **Environments**.
-   For this repository, the page is
-   [deployment environments](https://github.com/jatmn/neon-convoy/settings/environments).
 2. If **`bunny-production`** is listed, click it. Otherwise click
    **New environment**, enter `bunny-production`, then click
    **Configure environment**. A workflow can create this environment
@@ -196,20 +202,23 @@ is the **storage-zone password**, as documented in the
 Keep it in GitHub secrets, never committed files or browser code. The workflow
 passes it only to the upload step after installation and checks.
 Pull requests and non-`main` manual runs cannot deploy. Forks must configure
-their own environment and zones; they do not receive this repository's secrets.
+their own environment and zones; secrets are not copied from the upstream
+repository.
 
 ## 5. First deployment and verification
 
-The workflow file must be on the repository's default branch (`main` here)
-and include `workflow_dispatch`; the provided
+The workflow file must be on your repository's default branch (`main` for the
+supplied workflows) and include `workflow_dispatch`; the provided
 [`deploy.yml`](../.github/workflows/deploy.yml) already does. Starting a manual
 run requires write access and GitHub Actions to be enabled for the repository.
 
 1. Finish the Bunny and GitHub setup above, and confirm **Game checks** succeeded
-   for the current `main` commit.
+   for the current `main` commit in your repository. On a new fork or copy,
+   push or merge your hostname configuration changes to `main` after enabling
+   Actions so it has its own push CI run; upstream CI results do not satisfy
+   the deployment gate in your repository.
 2. Open your repository's **Actions** tab. In the **left sidebar**, click
-   **Deploy live preview**. For this repository, open the
-   [deployment workflow](https://github.com/jatmn/neon-convoy/actions/workflows/deploy.yml).
+   **Deploy live preview**.
 3. Click **Run workflow** above the run list. In the dropdown, select `main`
    in **Branch**, then click the **Run workflow** button inside the dropdown.
    The workflow has no input fields. This also retries a failed upload after
