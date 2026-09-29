@@ -1,14 +1,16 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from '@playwright/test';
 
-async function clickWorld(page, x, y) {
+async function clickWorld(page: Page, x: number, y: number) {
   const canvas = page.locator('#game');
   await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
+  if (!box) throw new Error('Battlefield has no bounding box');
   await canvas.click({ position: { x: x / 1200 * box.width, y: y / 600 * box.height } });
 }
 
 test('campaign loads ten playable sectors with a rendered battlefield', async ({ page }) => {
-  const errors = [];
+  const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
 
@@ -17,9 +19,9 @@ test('campaign loads ten playable sectors with a rendered battlefield', async ({
   expect(firstTimer).toMatch(/^\d{2}:\d{2}$/);
   await expect(page.locator('#levels button')).toHaveCount(10);
   await expect(page.locator('#start-banner')).toBeVisible();
-  const battlefield = await page.locator('#game').evaluate(canvas => {
+  const battlefield = await page.locator('#game').evaluate((canvas: HTMLCanvasElement) => {
     const { width, height } = canvas;
-    const data = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+    const data = canvas.getContext('2d')!.getImageData(0, 0, width, height).data;
     let lit = 0;
     for (let i = 0; i < data.length; i += 400) if (data[i] || data[i + 1] || data[i + 2]) lit++;
     return { width, height, lit };
@@ -30,7 +32,7 @@ test('campaign loads ten playable sectors with a rendered battlefield', async ({
 
   await page.locator('#levels button').last().click();
   await expect(page.getByRole('heading', { name: 'Neon Convoy' })).toBeVisible();
-  await expect(page.locator('#timer')).not.toHaveText(firstTimer);
+  await expect(page.locator('#timer')).not.toHaveText(firstTimer!);
   await expect(page.locator('#rescue-total')).toContainText('/');
   expect(errors).toEqual([]);
 });
@@ -57,7 +59,7 @@ test('deploy, pause, speed, restart, and music controls update game state', asyn
 
   await page.getByRole('button', { name: 'Restart level' }).click();
   await expect(page.locator('#start-banner')).toBeVisible();
-  await expect(page.locator('#timer')).toHaveText(initialTimer);
+  await expect(page.locator('#timer')).toHaveText(initialTimer!);
   await expect(page.locator('#speed span')).toHaveText('1×');
 });
 
@@ -136,7 +138,7 @@ test('a successful rescue saves progress and opens the next sector', async ({ pa
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Convoy extracted.' })).toBeVisible();
   await expect(page.locator('#campaign-complete')).toContainText('1 / 10');
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('neon-convoy-progress'))['1'].completed)).toBe(true);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('neon-convoy-progress') || '{}')['1'].completed)).toBe(true);
   await page.getByRole('button', { name: /Next sector/ }).click();
   await expect(page.getByRole('heading', { name: 'Skybridge' })).toBeVisible();
   await expect(page.locator('#start-banner')).toBeVisible();

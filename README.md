@@ -52,7 +52,7 @@ Every level has a distinct original looping synthwave arrangement, synthesized i
 
 ## Develop
 
-Requires Node.js **22.12 or newer**.
+Requires Node.js **22.18 or newer**.
 
 ```sh
 npm ci
@@ -70,25 +70,46 @@ This produces a deployable static site in `dist/` and regenerates the checked-in
 ## Validate
 
 ```sh
-npm test
-npm run build
 npx playwright install chromium
-npm run test:browser
+npm run check
 ```
 
-Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. CI runs the suite for pushes to `main` and pull requests.
+Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `npm run check` runs all local gates; individual commands are `npm run typecheck`, `npm test`, `npm run build`, `npm run test:browser`, and `npm run test:distribution` (after building).
+
+TypeScript is checked by `tsc`; Vite builds the browser code and Node runs the scripts and simulation tests using native type stripping. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
 
 If Chromium is already installed outside Playwright's expected location, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable before running browser tests.
 
+## Continuous integration
+
+GitHub Actions runs on pull requests (including forks) and pushes to `main`, using Ubuntu and Node 22.18, read-only permissions, timeouts, and cancellation of superseded runs. The small selection job tests the routing rules without installing dependencies. Jobs run only when their inputs change:
+
+| Changed surface | Checks |
+| --- | --- |
+| Documentation or screenshots | Routing and aggregate only |
+| Engine, levels, or shared game types | Types, simulation, browser controls, distribution |
+| UI, renderer, audio, or Vite config | Types, browser controls, distribution |
+| CSS, entry HTML, or favicon | Browser controls, distribution |
+| Simulation test | Types and simulation |
+| Browser test | Types and browser controls |
+| Standalone script, distribution test/config | Types and distribution |
+| Generated `play.html` | Distribution |
+| Shared Playwright config | Types, browser controls, distribution |
+| Package manifests, TypeScript config, routing code/tests, or CI workflow | All checks |
+
+Mixed changes run the union of their checks. Simulation needs no dependency installation. Browser jobs install the pinned Playwright Chromium and retain failure artifacts for seven days. The distribution job rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
+
+For branch protection, require the stable **Game checks** aggregate. It succeeds only when every selected job succeeds and also reports success for documentation-only changes. Avoid requiring the individual conditional jobs. Repository visibility and branch protection are configured separately in GitHub settings.
+
 ## Project layout
 
-- `src/engine.js`: fixed-step simulation, collision, terrain cells, tool behavior, particles, and scoring.
-- `src/levels.js`: ten sector layouts, inventories, briefings, hints, and scripted validation strategies.
-- `src/renderer.js`: Canvas scene, terrain rendering, sprite sheet, and effects.
-- `src/audio.js`: ten original Web Audio arrangements and sound effects.
-- `src/main.js` / `src/style.css`: mission control, responsive controls, terrain lab, dialogs, and persistence.
+- `src/engine.ts`: fixed-step simulation, collision, terrain cells, tool behavior, particles, and scoring.
+- `src/levels.ts`: ten sector layouts, inventories, briefings, hints, and scripted validation strategies.
+- `src/renderer.ts`: Canvas scene, terrain rendering, sprite sheet, and effects.
+- `src/audio.ts`: ten original Web Audio arrangements and sound effects.
+- `src/main.ts` / `src/style.css`: mission control, responsive controls, terrain lab, dialogs, and persistence.
 - `tests/`: simulation and desktop/mobile integration coverage.
-- `scripts/standalone.js`: packages the Vite output as a single playable HTML file.
+- `scripts/standalone.ts`: packages the Vite output as a single playable HTML file.
 
 ## Inspiration and credits
 

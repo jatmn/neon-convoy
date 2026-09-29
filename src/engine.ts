@@ -1,3 +1,5 @@
+import type { Drone, Effect, GameStatus, Level, Particle, Projectile, TerrainRect, Tool } from './types.ts';
+
 export const WORLD_WIDTH = 1200;
 export const WORLD_HEIGHT = 600;
 export const CELL_SIZE = 4;
@@ -6,10 +8,15 @@ const WALK_SPEED = 38;
 const GRAVITY = 500;
 const MAX_SAFE_FALL = 110;
 const SPAWN_INTERVAL = 1.3;
-const TOOL_NAMES = ['laser', 'drill', 'missile', 'bridge', 'block', 'boost'];
+const TOOL_NAMES: Tool[] = ['laser', 'drill', 'missile', 'bridge', 'block', 'boost'];
 
 export class Terrain {
-  constructor(rects = []) {
+  cellSize: number;
+  width: number;
+  height: number;
+  cells: Uint8Array;
+  revision: number;
+  constructor(rects: TerrainRect[] = []) {
     this.cellSize = CELL_SIZE;
     this.width = WORLD_WIDTH / CELL_SIZE;
     this.height = WORLD_HEIGHT / CELL_SIZE;
@@ -19,16 +26,16 @@ export class Terrain {
     this.revision = 0;
   }
 
-  get(x, y) {
+  get(x: number, y: number) {
     const cx = Math.floor(x / CELL_SIZE);
     const cy = Math.floor(y / CELL_SIZE);
     if (cx < 0 || cy < 0 || cx >= this.width || cy >= this.height) return 0;
     return this.cells[cy * this.width + cx];
   }
 
-  solid(x, y) { return this.get(x, y) !== 0; }
+  solid(x: number, y: number) { return this.get(x, y) !== 0; }
 
-  fill(x, y, w, h, type, initializing = false) {
+  fill(x: number, y: number, w: number, h: number, type: number, initializing = false) {
     const left = Math.max(0, Math.floor(x / CELL_SIZE));
     const top = Math.max(0, Math.floor(y / CELL_SIZE));
     const right = Math.min(this.width, Math.ceil((x + w) / CELL_SIZE));
@@ -44,7 +51,7 @@ export class Terrain {
     return changed;
   }
 
-  circle(x, y, radius, mode, maxY = Infinity) {
+  circle(x: number, y: number, radius: number, mode: number, maxY = Infinity) {
     const left = Math.max(0, Math.floor((x - radius) / CELL_SIZE));
     const right = Math.min(this.width - 1, Math.floor((x + radius) / CELL_SIZE));
     const top = Math.max(0, Math.floor((y - radius) / CELL_SIZE));
@@ -66,7 +73,27 @@ export class Terrain {
 }
 
 export class Game {
-  constructor(level) { this.level = level; this.reset(); }
+  level: Level;
+  // reset() initializes these fields both at construction and on restart.
+  terrain!: Terrain;
+  drones!: Drone[];
+  particles!: Particle[];
+  projectiles!: Projectile[];
+  effects!: Effect[];
+  elapsed!: number;
+  spawned!: number;
+  saved!: number;
+  lost!: number;
+  score!: number;
+  status!: GameStatus;
+  paused!: boolean;
+  speed!: number;
+  sandbox!: boolean;
+  inventory!: Record<Tool, number>;
+  _accumulator!: number;
+  _spawnClock!: number;
+  _nextId!: number;
+  constructor(level: Level) { this.level = level; this.reset(); }
 
   reset() {
     this.terrain = new Terrain(this.level.terrain);
@@ -103,8 +130,8 @@ export class Game {
     return this.paused;
   }
 
-  droneAt(x, y) {
-    let nearest = null;
+  droneAt(x: number, y: number) {
+    let nearest: Drone | null = null;
     let distance = Infinity;
     for (const drone of this.drones) {
       if (!drone.alive) continue;
@@ -114,7 +141,7 @@ export class Game {
     return nearest;
   }
 
-  assign(droneId, tool) {
+  assign(droneId: number, tool: Tool) {
     const drone = this.drones.find(d => d.id === droneId && d.alive);
     if (!drone || !TOOL_NAMES.includes(tool)) return false;
     if (tool === 'block' && drone.state === 'block') {
@@ -144,7 +171,7 @@ export class Game {
     return true;
   }
 
-  editTerrain(x, y, mode, radius = 20) {
+  editTerrain(x: number, y: number, mode: string | number, radius = 20) {
     const type = mode === 'erase' || mode === 0 ? 0 : mode === 'steel' || mode === 2 ? 2 : mode === 'build' || mode === 'rock' || mode === 1 ? 1 : mode === 3 ? 3 : null;
     if (type === null) return false;
     const changed = this.terrain.circle(x, y, Math.max(1, radius), type);
@@ -162,7 +189,7 @@ export class Game {
     };
   }
 
-  update(dt) {
+  update(dt: number) {
     if (this.status !== 'running' || this.paused || !Number.isFinite(dt) || dt <= 0) return;
     this._accumulator += Math.min(dt, 0.25) * (this.speed === 2 ? 2 : 1);
     while (this._accumulator >= STEP && this.status === 'running') {
@@ -178,7 +205,7 @@ export class Game {
     this.spawned++;
   }
 
-  _tick(dt) {
+  _tick(dt: number) {
     this.elapsed += dt;
     this._spawnClock += dt;
     while (this._spawnClock >= SPAWN_INTERVAL && this.spawned < this.level.total) {
@@ -214,7 +241,7 @@ export class Game {
     }
   }
 
-  _updateDrone(d, dt) {
+  _updateDrone(d: Drone, dt: number) {
     d.anim += dt;
     if (d.state === 'block') return;
     if (d.state === 'missile') {
@@ -229,16 +256,16 @@ export class Game {
     }
     if (d.state === 'drill') {
       d.actionTime += dt;
-      this.terrain.fill(d.actionStartX - 44, d.actionStartY + 1, 88, 36, 0);
-      if (d.y - d.actionStartY > 36 || d.actionTime > 2.4) d.state = 'walk';
+      this.terrain.fill(d.actionStartX! - 44, d.actionStartY! + 1, 88, 36, 0);
+      if (d.y - d.actionStartY! > 36 || d.actionTime > 2.4) d.state = 'walk';
     }
     if (d.state === 'bridge') {
       d.actionTime += dt;
       const front = d.x + d.dir * 18;
-      const distance = Math.abs(d.x - d.actionStartX);
-      const treadTop = d.actionStartY - Math.min(20, Math.floor(distance / 30) * 4);
-      this.terrain.fill(front - 8, treadTop, 20, d.actionStartY + 5 - treadTop, 3);
-      if (Math.abs(d.x - d.actionStartX) > 180) d.state = 'walk';
+      const distance = Math.abs(d.x - d.actionStartX!);
+      const treadTop = d.actionStartY! - Math.min(20, Math.floor(distance / 30) * 4);
+      this.terrain.fill(front - 8, treadTop, 20, d.actionStartY! + 5 - treadTop, 3);
+      if (Math.abs(d.x - d.actionStartX!) > 180) d.state = 'walk';
     }
 
     if (d.state === 'drill') {
@@ -271,7 +298,7 @@ export class Game {
     if (d.x < 0 || d.x >= WORLD_WIDTH || d.y > WORLD_HEIGHT + 10) this._kill(d);
   }
 
-  _vertical(d, dt) {
+  _vertical(d: Drone, dt: number) {
     const floor = this.terrain.solid(d.x - 4, d.y + 2) || this.terrain.solid(d.x + 4, d.y + 2);
     if (!floor) {
       d.vy = Math.min(d.vy + GRAVITY * dt, 260);
@@ -294,13 +321,13 @@ export class Game {
     } else { d.vy = 0; d.fallDistance = 0; if (d.state === 'fall') d.state = 'walk'; }
   }
 
-  _kill(d) {
+  _kill(d: Drone) {
     if (!d.alive) return;
     d.alive = false; d.state = 'dead'; this.lost++;
     this._effect(d.x, d.y - 10, 20, 'death', 0.45);
   }
 
-  _explode(x, y, radius) {
+  _explode(x: number, y: number, radius: number) {
     // Keep the road beneath the impact intact; the projectile tunnels the wall.
     this.terrain.circle(x, y, radius, 0, y + 12);
     this._effect(x, y, radius, 'blast', 0.55);
@@ -310,7 +337,7 @@ export class Game {
     }
   }
 
-  _effect(x, y, radius, kind, life) { this.effects.push({ x, y, radius, kind, life, maxLife: life }); }
+  _effect(x: number, y: number, radius: number, kind: string, life: number) { this.effects.push({ x, y, radius, kind, life, maxLife: life }); }
 }
 
 export default Game;

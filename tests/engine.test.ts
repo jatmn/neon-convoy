@@ -1,19 +1,20 @@
+import type { Level, Tool } from '../src/types.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, Terrain, WORLD_WIDTH, WORLD_HEIGHT, CELL_SIZE } from '../src/engine.js';
-import { LEVELS } from '../src/levels.js';
+import { Game, Terrain, WORLD_WIDTH, WORLD_HEIGHT, CELL_SIZE } from '../src/engine.ts';
+import { LEVELS } from '../src/levels.ts';
 
-function playSolution(level) {
+function playSolution(level: Level) {
   const game = new Game(level);
   game.start();
-  const assigned = new Set();
+  const assigned = new Set<Tool>();
   for (let frame = 0; frame < level.timeLimit * 60 + 60 && game.status === 'running'; frame++) {
     for (const drone of game.drones) {
       if (!drone.alive) continue;
       if (level.solution.boostAll && !drone.boosted) {
         assert.equal(game.assign(drone.id, 'boost'), true, `${level.name}: boost assignment`);
       }
-      for (const tool of ['laser', 'drill', 'bridge', 'missile', 'block']) {
+      for (const tool of ['laser', 'drill', 'bridge', 'missile', 'block'] as const) {
         const at = level.solution[`${tool}At`];
         if (at !== undefined && !assigned.has(tool) && drone.x >= at && drone.dir > 0) {
           assert.equal(game.assign(drone.id, tool), true, `${level.name}: ${tool} assignment`);

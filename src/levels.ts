@@ -1,9 +1,11 @@
+import type { Level, TerrainRect } from './types.ts';
+
 // Coordinates are world pixels in a 1200 × 600 arena. Drone y is its feet.
 const ground = (x = 0, w = 1200, y = 500, h = 100, type = 1) => ({ x, y, w, h, type });
-const rock = (x, y, w, h) => ({ x, y, w, h, type: 1 });
-const steel = (x, y, w, h) => ({ x, y, w, h, type: 2 });
+const rock = (x: number, y: number, w: number, h: number) => ({ x, y, w, h, type: 1 });
+const steel = (x: number, y: number, w: number, h: number) => ({ x, y, w, h, type: 2 });
 
-const define = (id, name, subtitle, briefing, hint, difficulty, timeLimit, total, required, spawn, exit, terrain, hazards, tools, solution) => ({
+const define = (id: number, name: string, subtitle: string, briefing: string, hint: string, difficulty: number, timeLimit: number, total: number, required: number, spawn: Level['spawn'], exit: Level['exit'], terrain: TerrainRect[], hazards: Level['hazards'], tools: Level['tools'], solution: Level['solution']): Level => ({
   id, name, subtitle, briefing, hint, difficulty, timeLimit, total, required, spawn, exit, terrain, hazards, tools, solution,
 });
 

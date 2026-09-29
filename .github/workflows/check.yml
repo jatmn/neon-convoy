@@ -3,25 +3,145 @@ on:
   push:
     branches: [main]
   pull_request:
+
 permissions:
   contents: read
+
+concurrency:
+  group: game-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  changes:
+    name: Select checks
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      types: ${{ steps.paths.outputs.types }}
+      simulation: ${{ steps.paths.outputs.simulation }}
+      browser: ${{ steps.paths.outputs.browser }}
+      distribution: ${{ steps.paths.outputs.distribution }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: '22'
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.18.0'
+          package-manager-cache: false
+      - name: Test CI routing (no dependencies required)
+        run: node --test tests/ci.test.ts
+      - name: Select affected surfaces
+        id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: node scripts/ci.ts "$BASE_SHA" "$HEAD_SHA" "$EVENT_NAME"
+
+  types:
+    name: TypeScript
+    needs: changes
+    if: needs.changes.outputs.types == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.18.0'
           cache: npm
       - run: npm ci
-      - run: npm test
-      - run: npm run build
+      - run: npm run typecheck
+
+  simulation:
+    name: Simulation
+    needs: changes
+    if: needs.changes.outputs.simulation == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.18.0'
+          package-manager-cache: false
+      - run: node --test tests/engine.test.ts
+
+  browser:
+    name: Browser controls
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.18.0'
+          cache: npm
+      - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
         with:
           name: browser-test-results
           path: test-results/
           retention-days: 7
+
+  distribution:
+    name: Production and standalone
+    needs: changes
+    if: needs.changes.outputs.distribution == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.18.0'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Check committed standalone build
+        run: git show HEAD:play.html | cmp - play.html
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:distribution
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: distribution-test-results
+          path: test-results/
+          retention-days: 7
+
+  checks:
+    # Require this stable check in branch protection, not conditional jobs.
+    name: Game checks
+    needs: [changes, types, simulation, browser, distribution]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Verify selected checks succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          assert results['changes']['result'] == 'success', 'Check selection failed'
+          for job in ('types', 'simulation', 'browser', 'distribution'):
+              selected = results['changes']['outputs'][job] == 'true'
+              expected = 'success' if selected else 'skipped'
+              assert results[job]['result'] == expected, f'{job}: {results[job]["result"]}'
+          PY

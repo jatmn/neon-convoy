@@ -2,8 +2,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: 'browser.spec.js',
+  testMatch: 'browser.spec.ts',
   timeout: 30_000,
+  forbidOnly: !!process.env.CI,
+  workers: process.env.CI ? 2 : undefined,
   expect: { timeout: 5_000 },
   use: {
     baseURL: 'http://127.0.0.1:4173',
