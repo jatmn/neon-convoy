@@ -7,6 +7,11 @@ Bunny Storage. A dedicated Pull Zone serves those files through Bunny CDN.
 This is a one-time dashboard setup. The repository workflow does not create
 zones, change DNS, or manage certificates.
 
+If you don't already use Bunny, you can optionally
+[sign up for bunny.net](https://bunny.net?ref=kmaemjuwiy).
+
+Affiliate link: we may earn a commission if you sign up.
+
 ## 1. Create the storage and CDN zones
 
 1. In [Bunny's dashboard](https://dash.bunny.net), open **Storage → Add Storage
