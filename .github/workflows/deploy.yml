@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # Never cancel an upload midway or allow concurrent writes to the same site.
 concurrency:
@@ -30,7 +31,7 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment:
       name: bunny-production
       url: https://neon-convoy.jatmn.dev
@@ -40,13 +41,29 @@ jobs:
           # A queued/manual run must not restore an older main snapshot.
           ref: main
           persist-credentials: false
+      - name: Wait for successful main CI on the deployed revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          revision=$(git rev-parse HEAD)
+          for attempt in {1..60}; do
+            result=$(gh api "repos/$GH_REPO/actions/workflows/check.yml/runs?event=push&branch=main&head_sha=$revision&per_page=1" \
+              --jq '.workflow_runs[0] | if . == null then "waiting" elif .status != "completed" then "waiting" else .conclusion end')
+            case "$result" in
+              success) exit 0 ;;
+              waiting) sleep 10 ;;
+              *) echo "Main CI did not succeed for $revision: $result" >&2; exit 1 ;;
+            esac
+          done
+          echo "Timed out waiting for main CI on $revision" >&2
+          exit 1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.18.0'
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run check
+      - run: npm run build
       - name: Check committed standalone build
         run: git show HEAD:play.html | cmp - play.html
       - name: Upload production files

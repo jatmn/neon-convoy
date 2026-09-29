@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: game-checks-${{ github.event.pull_request.number || github.ref }}
@@ -21,6 +22,8 @@ jobs:
       simulation: ${{ steps.paths.outputs.simulation }}
       browser: ${{ steps.paths.outputs.browser }}
       distribution: ${{ steps.paths.outputs.distribution }}
+      key: ${{ steps.paths.outputs.key }}
+      reused: ${{ steps.validation.outputs.cache-hit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -32,18 +35,49 @@ jobs:
           package-manager-cache: false
       - name: Test CI routing (no dependencies required)
         run: node --test tests/ci.test.ts
+      - name: Find successfully checked main baseline
+        id: baseline
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          # A newer docs/tooling push must not hide cancelled or failed game CI.
+          if ! candidates=$(gh api "repos/$GH_REPO/actions/workflows/check.yml/runs?event=push&branch=main&status=success&per_page=100" --jq '.workflow_runs[].head_sha'); then
+            candidates=''
+          fi
+          for candidate in $candidates; do
+            if git merge-base --is-ancestor "$candidate" "$HEAD_SHA"; then
+              echo "sha=$candidate" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          # No successful ancestor: conservatively validate every surface.
+          echo "sha=0000000000000000000000000000000000000000" >> "$GITHUB_OUTPUT"
       - name: Select affected surfaces
         id: paths
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ steps.baseline.outputs.sha || github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
         run: node scripts/ci.ts "$BASE_SHA" "$HEAD_SHA" "$EVENT_NAME"
+      - name: Look up successful validation of identical inputs
+        id: validation
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: .ci-validation
+          key: game-validation-v1-${{ runner.os }}-${{ steps.paths.outputs.key }}
+          lookup-only: true
+      - name: Test uploader (no dependencies required)
+        if: steps.paths.outputs.deployment == 'true' && steps.validation.outputs.cache-hit != 'true'
+        run: node --test tests/deploy.test.ts
 
   types:
     name: TypeScript
     needs: changes
-    if: needs.changes.outputs.types == 'true'
+    if: needs.changes.outputs.types == 'true' && needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -60,7 +94,7 @@ jobs:
   simulation:
     name: Simulation
     needs: changes
-    if: needs.changes.outputs.simulation == 'true'
+    if: needs.changes.outputs.simulation == 'true' && needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -71,12 +105,12 @@ jobs:
         with:
           node-version: '22.18.0'
           package-manager-cache: false
-      - run: node --test tests/engine.test.ts tests/deploy.test.ts
+      - run: node --test tests/engine.test.ts
 
   browser:
     name: Browser controls
     needs: changes
-    if: needs.changes.outputs.browser == 'true'
+    if: needs.changes.outputs.browser == 'true' && needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -100,7 +134,7 @@ jobs:
   distribution:
     name: Production and standalone
     needs: changes
-    if: needs.changes.outputs.distribution == 'true'
+    if: needs.changes.outputs.distribution == 'true' && needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -130,7 +164,7 @@ jobs:
     needs: [changes, types, simulation, browser, distribution]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 1
+    timeout-minutes: 2
     steps:
       - name: Verify selected checks succeeded
         env:
@@ -140,8 +174,20 @@ jobs:
           import json, os
           results = json.loads(os.environ['RESULTS'])
           assert results['changes']['result'] == 'success', 'Check selection failed'
+          reused = results['changes']['outputs'].get('reused') == 'true'
           for job in ('types', 'simulation', 'browser', 'distribution'):
               selected = results['changes']['outputs'][job] == 'true'
-              expected = 'success' if selected else 'skipped'
+              expected = 'success' if selected and not reused else 'skipped'
               assert results[job]['result'] == expected, f'{job}: {results[job]["result"]}'
           PY
+      # Save only after routing, uploader tests and every selected job passed.
+      # A failed or cancelled run cannot create a successful-validation marker.
+      - name: Record successful validation
+        if: needs.changes.outputs.reused != 'true'
+        run: mkdir .ci-validation && touch .ci-validation/passed
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: needs.changes.outputs.reused != 'true'
+        continue-on-error: true
+        with:
+          path: .ci-validation
+          key: game-validation-v1-${{ runner.os }}-${{ needs.changes.outputs.key }}
