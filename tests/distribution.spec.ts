@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 for (const entry of ['dist/index.html', 'play.html']) {
@@ -16,6 +17,8 @@ for (const entry of ['dist/index.html', 'play.html']) {
     } else {
       await page.goto(pathToFileURL(resolve(entry)).href);
     }
+    const license = await readFile('LICENSE', 'utf8');
+    expect(await page.content()).toContain(`<!--\n${license}-->`);
     await expect(page.getByRole('heading', { name: 'First Light' })).toBeVisible();
     expect(await page.evaluate(() => '__NEON_CONVOY__' in window)).toBe(false);
     const timer = await page.locator('#timer').textContent();

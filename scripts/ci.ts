@@ -9,7 +9,7 @@ export function checksFor(paths: string[]) {
     types: shared || paths.some(path => /\.([cm]?ts|tsx)$/.test(path)),
     simulation: shared || paths.some(path => /^(src\/(engine|levels|types)\.ts|tests\/engine\.test\.ts)$/.test(path)),
     browser: shared || app || paths.some(path => /^(tests\/browser\.spec\.ts|playwright\.config\.ts)$/.test(path)),
-    distribution: shared || app || paths.some(path => /^(scripts\/standalone\.ts|playwright\.distribution\.config\.ts|play\.html|tests\/distribution\.spec\.ts|playwright\.config\.ts)$/.test(path)),
+    distribution: shared || app || paths.some(path => /^(scripts\/standalone\.ts|playwright\.distribution\.config\.ts|LICENSE|play\.html|tests\/distribution\.spec\.ts|playwright\.config\.ts)$/.test(path)),
   };
 }
 

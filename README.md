@@ -93,7 +93,7 @@ GitHub Actions runs on pull requests (including forks) and pushes to `main`, usi
 | Simulation test | Types and simulation |
 | Browser test | Types and browser controls |
 | Standalone script, distribution test/config | Types and distribution |
-| Generated `play.html` | Distribution |
+| Project `LICENSE` or generated `play.html` | Distribution |
 | Shared Playwright config | Types, browser controls, distribution |
 | Package manifests, TypeScript config, routing code/tests, or CI workflow | All checks |
 
@@ -114,3 +114,13 @@ For branch protection, require the stable **Game checks** aggregate. It succeeds
 ## Inspiration and credits
 
 Research references are documented in [docs/inspiration.md](docs/inspiration.md): Wikipedia's gameplay overview and footage of the original 1991 game informed autonomous movement, limited skills, terrain puzzles, and progressive teaching. Neon Convoy's names, layouts, art, and audio are original. This project is not affiliated with the owners of Lemmings.
+
+## License
+
+Neon Convoy is source available under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, modify, and redistribute it for noncommercial purposes under those terms, including the license's expressly permitted personal and institutional uses. Redistributed copies must include the license text or its official URL and the required copyright notice.
+
+The license has no change date or automatic conversion to commercial permissions. Commercial use outside the permissions granted by this license requires separate permission from [jatmn](https://github.com/jatmn). This is a noncommercial software license, so the project is not open source under the OSI definition.
+
+The license covers this project's original code and game content. Third-party dependencies and optional Google Fonts retain their own licenses. Both the built website and standalone `play.html` include the project license and required notice in their HTML source.
+
+Required Notice: Copyright 2026 jatmn (https://github.com/jatmn)

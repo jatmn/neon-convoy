@@ -1,6 +1,9 @@
 import { readFile, writeFile } from 'node:fs/promises';
 // Keep a double-clickable copy in the repository for players who do not use Node.
 let html = await readFile('dist/index.html', 'utf8');
+const license = await readFile('LICENSE', 'utf8');
+html = html.replace('<head>', () => `<head>\n<!--\n${license}-->`);
+await writeFile('dist/index.html', html);
 const jsPath = html.match(/<script[^>]+src="([^"]+)"[^>]*><\/script>/)?.[1];
 const cssPath = html.match(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"[^>]*>/)?.[1];
 if (!jsPath || !cssPath) throw new Error('Expected a single Vite JS and CSS bundle');

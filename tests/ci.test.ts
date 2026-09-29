@@ -40,7 +40,7 @@ test('test and packaging changes only run their related checks', () => {
   for (const path of ['scripts/standalone.ts', 'tests/distribution.spec.ts', 'playwright.distribution.config.ts']) {
     assert.deepEqual(checksFor([path]), { ...none, types: true, distribution: true }, path);
   }
-  assert.deepEqual(checksFor(['play.html']), { ...none, distribution: true });
+  for (const path of ['LICENSE', 'play.html']) assert.deepEqual(checksFor([path]), { ...none, distribution: true });
   assert.deepEqual(checksFor(['playwright.config.ts']), { ...all, simulation: false });
   assert.deepEqual(checksFor(['tests/engine.test.ts', 'play.html']), { ...none, types: true, simulation: true, distribution: true });
 });
