@@ -1,7 +1,8 @@
 import { readFile, writeFile } from 'node:fs/promises';
 // Keep a double-clickable copy in the repository for players who do not use Node.
 let html = await readFile('dist/index.html', 'utf8');
-const license = await readFile('LICENSE', 'utf8');
+// Embed LF line endings so committed play.html matches cmp on any working-tree EOL.
+const license = (await readFile('LICENSE', 'utf8')).replace(/\r\n?/g, '\n');
 html = html.replace('<head>', () => `<head>\n<!--\n${license}-->`);
 await writeFile('dist/index.html', html);
 const jsPath = html.match(/<script[^>]+src="([^"]+)"[^>]*><\/script>/)?.[1];
