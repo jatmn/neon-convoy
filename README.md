@@ -2,6 +2,11 @@
 
 **Autonomous minds. Human instinct.**
 
+### [▶ Play Neon Convoy in your browser](https://neon-convoy.jatmn.dev)
+
+Try the live game — no download or installation required. The preview follows
+the latest deployed `main` build. Prefer to play offline? Use the download below.
+
 A complete browser rescue-puzzle game inspired by the terrain and crowd-management puzzles of Lemmings. Your convoy is a fleet of animated AI rover drones: assign industrial tools, cut a route through the terrain, build crossings, and bring enough drones to the extraction gate before the clock runs out.
 
 ## Play immediately
@@ -67,6 +72,18 @@ npm run build
 
 This produces a deployable static site in `dist/` and regenerates the checked-in standalone `play.html`. Upload `dist/` to any static host, or distribute `play.html`. No backend, accounts, or API keys are needed.
 
+## bunny.net live preview deployment
+
+The **Deploy live preview** workflow publishes the production `dist/` files to
+Bunny Storage when a push to `main` changes game or
+deployment inputs. Documentation, screenshots, and test-only changes do not
+deploy. Manual runs on `main` can initialize or retry a deployment. Each run
+waits for successful **Game checks** on the checked-out `main` revision, then
+builds and uploads it without repeating the test suite.
+
+See the [bunny.net deployment guide](docs/bunny-deployment.md) for storage and
+CDN setup, custom-domain DNS, HTTPS, and GitHub environment configuration.
+
 ## Validate
 
 ```sh
@@ -89,17 +106,33 @@ GitHub Actions runs on pull requests (including forks) and pushes to `main`, usi
 | Documentation or screenshots | Routing and aggregate only |
 | Engine, levels, or shared game types | Types, simulation, browser controls, distribution |
 | UI, renderer, audio, or Vite config | Types, browser controls, distribution |
-| CSS, entry HTML, or favicon | Browser controls, distribution |
+| CSS, entry HTML, favicon, or public assets | Browser controls, distribution |
 | Simulation test | Types and simulation |
 | Browser test | Types and browser controls |
 | Standalone script, distribution test/config | Types and distribution |
 | Project `LICENSE` or generated `play.html` | Distribution |
 | Shared Playwright config | Types, browser controls, distribution |
-| Package manifests, TypeScript config, routing code/tests, or CI workflow | All checks |
+| Uploader code/tests | Types and uploader regression tests |
+| Deployment workflow | Uploader regression tests |
+| Routing code/tests | Routing and types |
+| Package manifests, TypeScript config, or check workflow | All checks |
 
 Mixed changes run the union of their checks. Simulation needs no dependency installation. Browser jobs install the pinned Playwright Chromium and retain failure artifacts for seven days. The distribution job rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
 
-For branch protection, require the stable **Game checks** aggregate. It succeeds only when every selected job succeeds and also reports success for documentation-only changes. Avoid requiring the individual conditional jobs. Repository visibility and branch protection are configured separately in GitHub settings.
+Documentation-only updates within a PR reuse successful validation when the
+selected checks and all tracked inputs outside documentation are identical.
+The fingerprint includes the actual merge tree, so base-branch code changes
+invalidate reuse too. Only successful validation saves a marker; cache misses
+or unavailable caches run the selected checks normally. Routing and the stable
+aggregate still run so required checks can complete. GitHub-managed CodeQL and
+third-party integrations have their own scheduling outside these workflows.
+
+On `main`, selection compares against the latest successfully checked ancestor.
+If a game push was not validated before a documentation push arrived, those
+game checks still run. Missing baseline history or an unavailable lookup runs
+all checks, so a later push cannot hide failed or cancelled validation.
+
+For branch protection, require the stable **Game checks** aggregate. It succeeds only when every selected check succeeds or has matching successful validation, and also reports success for documentation-only changes. Avoid requiring the individual conditional jobs. Repository visibility and branch protection are configured separately in GitHub settings.
 
 ## Project layout
 
