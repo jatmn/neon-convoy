@@ -17,7 +17,7 @@ for (const entry of ['dist/index.html', 'play.html']) {
     } else {
       await page.goto(pathToFileURL(resolve(entry)).href);
     }
-    const license = await readFile('LICENSE', 'utf8');
+    const license = (await readFile('LICENSE', 'utf8')).replace(/\r\n?/g, '\n');
     expect(await page.content()).toContain(`<!--\n${license}-->`);
     await expect(page.getByRole('heading', { name: 'First Light' })).toBeVisible();
     expect(await page.evaluate(() => '__NEON_CONVOY__' in window)).toBe(false);
