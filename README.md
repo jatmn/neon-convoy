@@ -111,6 +111,11 @@ For branch protection, require the stable **Game checks** aggregate. It succeeds
 - `tests/`: simulation and desktop/mobile integration coverage.
 - `scripts/standalone.ts`: packages the Vite output as a single playable HTML file.
 
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for project direction, pull request
+expectations, validation, and review follow-up.
+
 ## Inspiration and credits
 
 Research references are documented in [docs/inspiration.md](docs/inspiration.md): Wikipedia's gameplay overview and footage of the original 1991 game informed autonomous movement, limited skills, terrain puzzles, and progressive teaching. Neon Convoy's names, layouts, art, and audio are original. This project is not affiliated with the owners of Lemmings.
