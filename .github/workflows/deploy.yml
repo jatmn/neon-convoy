@@ -1,0 +1,62 @@
+name: Deploy live preview
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'favicon.svg'
+      - 'LICENSE'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'vite.config.*'
+      - 'scripts/standalone.ts'
+      - 'scripts/deploy.ts'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel an upload midway or allow concurrent writes to the same site.
+concurrency:
+  group: bunny-live-preview
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: bunny-production
+      url: https://neon-convoy.jatmn.dev
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A queued/manual run must not restore an older main snapshot.
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.18.0'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run check
+      - name: Check committed standalone build
+        run: git show HEAD:play.html | cmp - play.html
+      - name: Upload production files
+        env:
+          BUNNY_STORAGE_ZONE: ${{ vars.BUNNY_STORAGE_ZONE }}
+          BUNNY_STORAGE_HOST: ${{ vars.BUNNY_STORAGE_HOST }}
+          BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
+        run: node scripts/deploy.ts
+      - name: Record deployed revision
+        run: |
+          revision=$(git rev-parse HEAD)
+          echo "Published commit: $revision" >> "$GITHUB_STEP_SUMMARY"
+          echo "Play: https://neon-convoy.jatmn.dev" >> "$GITHUB_STEP_SUMMARY"

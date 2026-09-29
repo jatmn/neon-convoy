@@ -71,7 +71,7 @@ jobs:
         with:
           node-version: '22.18.0'
           package-manager-cache: false
-      - run: node --test tests/engine.test.ts
+      - run: node --test tests/engine.test.ts tests/deploy.test.ts
 
   browser:
     name: Browser controls

@@ -2,6 +2,11 @@
 
 **Autonomous minds. Human instinct.**
 
+### [▶ Play Neon Convoy in your browser](https://neon-convoy.jatmn.dev)
+
+Try the live game — no download or installation required. The preview follows
+the latest deployed `main` build. Prefer to play offline? Use the download below.
+
 A complete browser rescue-puzzle game inspired by the terrain and crowd-management puzzles of Lemmings. Your convoy is a fleet of animated AI rover drones: assign industrial tools, cut a route through the terrain, build crossings, and bring enough drones to the extraction gate before the clock runs out.
 
 ## Play immediately
@@ -67,6 +72,17 @@ npm run build
 
 This produces a deployable static site in `dist/` and regenerates the checked-in standalone `play.html`. Upload `dist/` to any static host, or distribute `play.html`. No backend, accounts, or API keys are needed.
 
+## Live preview deployment
+
+The **Deploy live preview** workflow publishes the production `dist/` files to
+Bunny Storage when a push to `main` changes game or
+deployment inputs. Documentation, screenshots, and test-only changes do not
+deploy. Manual runs on `main` can initialize or retry a deployment. Every run
+validates the game before uploading.
+
+See [Bunny CDN and DNS setup](docs/deployment.md) for the storage zone, Pull Zone,
+`neon-convoy.jatmn.dev` DNS record, HTTPS, and GitHub environment configuration.
+
 ## Validate
 
 ```sh
@@ -95,7 +111,7 @@ GitHub Actions runs on pull requests (including forks) and pushes to `main`, usi
 | Standalone script, distribution test/config | Types and distribution |
 | Project `LICENSE` or generated `play.html` | Distribution |
 | Shared Playwright config | Types, browser controls, distribution |
-| Package manifests, TypeScript config, routing code/tests, or CI workflow | All checks |
+| Package manifests, TypeScript config, routing or deployment code/tests, or CI workflows | All checks |
 
 Mixed changes run the union of their checks. Simulation needs no dependency installation. Browser jobs install the pinned Playwright Chromium and retain failure artifacts for seven days. The distribution job rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
 

@@ -16,7 +16,7 @@ test('documentation and screenshots skip game checks', () => {
 });
 
 test('shared tooling and the workflow validate every surface', () => {
-  for (const path of ['package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/check.yml', 'scripts/ci.ts', 'tests/ci.test.ts']) {
+  for (const path of ['package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/check.yml', '.github/workflows/deploy.yml', 'scripts/ci.ts', 'scripts/deploy.ts', 'tests/ci.test.ts', 'tests/deploy.test.ts']) {
     assert.deepEqual(checksFor([path]), all, path);
   }
 });
