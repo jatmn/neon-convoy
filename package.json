@@ -1,6 +1,7 @@
 {
   "name": "neon-convoy",
   "version": "1.0.0",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "private": true,
   "type": "module",
   "description": "A synthwave drone rescue puzzle game with destructible terrain.",
