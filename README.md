@@ -72,7 +72,7 @@ npm run build
 
 This produces a deployable static site in `dist/` and regenerates the checked-in standalone `play.html`. Upload `dist/` to any static host, or distribute `play.html`. No backend, accounts, or API keys are needed.
 
-## Live preview deployment
+## bunny.net live preview deployment
 
 The **Deploy live preview** workflow publishes the production `dist/` files to
 Bunny Storage when a push to `main` changes game or
@@ -80,8 +80,8 @@ deployment inputs. Documentation, screenshots, and test-only changes do not
 deploy. Manual runs on `main` can initialize or retry a deployment. Every run
 validates the game before uploading.
 
-See [Bunny CDN and DNS setup](docs/deployment.md) for the storage zone, Pull Zone,
-`neon-convoy.jatmn.dev` DNS record, HTTPS, and GitHub environment configuration.
+See the [bunny.net deployment guide](docs/bunny-deployment.md) for storage and
+CDN setup, custom-domain DNS, HTTPS, and GitHub environment configuration.
 
 ## Validate
 

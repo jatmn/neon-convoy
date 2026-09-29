@@ -1,8 +1,17 @@
-# Bunny live preview
+# bunny.net deployment guide
 
-The public game lives at **https://neon-convoy.jatmn.dev**. GitHub Actions builds
-the current `main`, validates it, and uploads only the contents of `dist/` to
-Bunny Storage. A dedicated Pull Zone serves those files through Bunny CDN.
+This guide covers deployment to bunny.net. You can also upload the production
+`dist/` build to any other static host.
+
+Use a hostname such as **https://game.example.com** for your deployment.
+Replace the example domain and zone names below with your own values.
+The provided GitHub Actions workflow builds the current `main`, validates it,
+and uploads only the contents of `dist/` to Bunny Storage. A dedicated Pull Zone
+serves those files through Bunny CDN.
+
+For your own deployment, update the workflow's `environment.url` and summary
+URL in [`deploy.yml`](../.github/workflows/deploy.yml), and the featured play link
+in [`README.md`](../README.md), to your chosen hostname.
 
 This is a one-time dashboard setup. The repository workflow does not create
 zones, change DNS, or manage certificates.
@@ -39,24 +48,30 @@ flow, regional endpoints, and upload authentication.
 
 ## 2. Add the hostname and DNS record
 
-`jatmn.dev` already uses Bunny DNS, so use its existing DNS zone.
+Use your domain's existing DNS provider. If you use Bunny DNS, open
+**DNS → your domain** in Bunny's dashboard; otherwise open your provider's DNS
+management page.
 
 1. In the game Pull Zone, open **General → Hostnames** and add
-   `neon-convoy.jatmn.dev`.
-2. Copy the CNAME target shown there. In **DNS → jatmn.dev**, add:
+   your chosen hostname, for example `game.example.com`.
+2. Copy the CNAME target shown there. In the DNS zone for your domain
+   (`example.com` in this example), add:
 
    | Field | Value |
    | --- | --- |
    | Type | `CNAME` |
-   | Name / Host | `neon-convoy` |
+   | Name / Host | `game` |
    | Target / Value | Your game Pull Zone hostname, e.g. `neon-convoy.b-cdn.net` |
    | TTL | `300` seconds |
 
    The target is a hostname without `https://` or a path. Use ordinary DNS
-   resolution for this CNAME; leave **CDN Acceleration / CDN Proxy disabled**.
+   resolution for this CNAME. If using Bunny DNS, leave
+   **CDN Acceleration / CDN Proxy disabled** for this record.
    The dedicated Pull Zone already delivers the game through the CDN.
    Enabling acceleration separately creates another Pull Zone and conflicts
-   with the hostname mapping. Preserve the existing apex and other DNS records.
+   with the hostname mapping. If using Cloudflare DNS, set the record to
+   **DNS only**. Preserve the existing apex and other DNS records; you do not
+   need to change nameservers to connect this subdomain.
 3. After the record propagates, return to the Pull Zone hostname and choose
    **Verify & Activate SSL** (or **Enable → Add Free Let's Encrypt Certificate**).
 4. Once HTTPS works, enable **Force SSL** for the game hostname.
@@ -64,7 +79,7 @@ flow, regional endpoints, and upload authentication.
 The [Custom Hostname guide](https://bunny.net/docs/cdn/custom-hostname) documents
 the CNAME flow. See [SSL setup](https://bunny.net/docs/cdn/ssl-setup) for certificate
 issuance and [CDN Acceleration](https://bunny.net/docs/cdn/cdn-acceleration) for why
-that separate automatic setup is unnecessary here. If `jatmn.dev` has restrictive
+that separate automatic setup is unnecessary here. If your domain has restrictive
 CAA records, allow `letsencrypt.org` as described in the SSL guide.
 
 The game has no client-side routes requiring a fallback. Serve `/` as the
@@ -109,7 +124,8 @@ remove them manually, allow for older cached pages first.
 
 ## 4. Configure GitHub Actions
 
-In this repository, open **Settings → Environments → New environment**, name it
+In your GitHub repository, open **Settings → Environments → New environment**,
+name it
 **`bunny-production`**, and restrict deployment branches to **`main`**. For fully
 automatic publishing, do not add required reviewers or a wait timer.
 
@@ -142,7 +158,8 @@ their own environment and zones; they do not receive this repository's secrets.
    This also retries a failed upload after fixing configuration.
 2. Check that installation, game validation, and uploads succeed.
    The run summary records the actual deployed commit.
-3. Visit the default `b-cdn.net` hostname and **https://neon-convoy.jatmn.dev/**.
+3. Visit the default `b-cdn.net` hostname and your custom hostname
+   (for example, **https://game.example.com/**).
    Verify the title, deploy a convoy, and confirm the timer advances, drones
    render, and music starts after interaction. Check desktop and mobile controls.
 4. In browser developer tools, confirm JS/CSS return successful responses and
@@ -154,8 +171,8 @@ their own environment and zones; they do not receive this repository's secrets.
 Optional command-line checks:
 
 ```sh
-dig +short CNAME neon-convoy.jatmn.dev
-curl -I https://neon-convoy.jatmn.dev/
+dig +short CNAME game.example.com
+curl -I https://game.example.com/
 ```
 
 Subsequent pushes or merges to `main` deploy when source, entry HTML, favicon,
