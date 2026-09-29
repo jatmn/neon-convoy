@@ -5,17 +5,23 @@ This guide covers deployment to bunny.net. You can also upload the production
 
 Use a hostname such as **https://game.example.com** for your deployment.
 Replace the example domain and zone names below with your own values.
+Work in a fork or copy of this repository that you own or administer; all GitHub
+setup below applies to that repository and your own Bunny account.
 The provided GitHub Actions workflow waits for successful **Game checks** on
 the current `main`, builds it, and uploads only the contents of `dist/` to Bunny
 Storage. A dedicated Pull Zone
 serves those files through Bunny CDN.
 
-For your own deployment, update the workflow's `environment.url` and summary
+In your fork or copy, update the workflow's `environment.url` and summary
 URL in [`deploy.yml`](../.github/workflows/deploy.yml), and the featured play link
 in [`README.md`](../README.md), to your chosen hostname.
 
 This is a one-time dashboard setup. The repository workflow does not create
 zones, change DNS, or manage certificates.
+
+The setup below was checked against the linked official GitHub and Bunny
+documentation on September 29, 2026. GitHub setup is in the **repository's**
+Settings, not your personal account settings.
 
 If you don't already use Bunny, you can optionally
 [sign up for bunny.net](https://bunny.net?ref=kmaemjuwiy).
@@ -125,23 +131,69 @@ remove them manually, allow for older cached pages first.
 
 ## 4. Configure GitHub Actions
 
-In your GitHub repository, open **Settings → Environments → New environment**,
-name it
-**`bunny-production`**, and restrict deployment branches to **`main`**. For fully
-automatic publishing, do not add required reviewers or a wait timer.
+### Check access and availability
 
-Add these **environment variables**:
+For a personal repository, sign in as its owner; an organization repository
+requires admin access to configure environments. Environments are available
+for public repositories on current GitHub plans. Private repositories require
+GitHub Pro, Team, or Enterprise. If **Environments** is missing, check your
+repository access, visibility, and plan before proceeding.
+
+For a fork, open **Actions** in your fork and enable GitHub Actions before
+pushing your deployment configuration changes. GitHub documents this in
+[workflows in forked repositories](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflows-in-forked-repositories).
+The supplied workflows use `main`; keep it as your repository's default branch
+when following this guide without changing the workflows.
+
+### Create or open the deployment environment
+
+1. Open **your repository → Settings**. If the tab is hidden, use the repository
+   tab dropdown to find it. In the Settings sidebar, click **Environments**.
+2. If **`bunny-production`** is listed, click it. Otherwise click
+   **New environment**, enter `bunny-production`, then click
+   **Configure environment**. A workflow can create this environment
+   automatically, but that does not configure its credentials or restrictions.
+3. In **Deployment branches**, select **Selected branches and tags**.
+   Click **Add deployment branch or tag rule**, choose **Branch** in
+   **Ref type**, enter `main` as the name pattern, and click **Add rule**.
+   Confirm the environment lists a branch rule for `main`.
+4. For automatic publishing, leave **Required reviewers** and **Wait timer**
+   unset.
+
+See GitHub's [environment setup and availability](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments)
+for these controls.
+
+### Add the two configuration variables
+
+On the **`bunny-production` environment page**, scroll to
+**Environment variables**. For each row below, click **Add variable**, enter
+the **Name** and **Value**, then click **Add variable** to save:
 
 | Name | Value |
 | --- | --- |
 | `BUNNY_STORAGE_ZONE` | Exact storage zone name, e.g. `neon-convoy` |
 | `BUNNY_STORAGE_HOST` | Regional endpoint hostname, e.g. `ny.storage.bunnycdn.com`; no scheme or slash |
 
-Add this **environment secret**:
+These are GitHub configuration variables read through `vars` in the workflow.
+See GitHub's [environment variable instructions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-variables#creating-configuration-variables-for-an-environment).
+
+### Add the storage password as a secret
+
+On that same environment page, under **Environment secrets**, click
+**Add secret**. Enter the following name and its secret value, then click
+**Add secret** to save:
 
 | Name | Value |
 | --- | --- |
 | `BUNNY_STORAGE_PASSWORD` | Read/write **storage-zone password** from its Access page |
+
+Confirm both variable names and the secret name appear on the environment page.
+GitHub does not display a saved secret's value. See GitHub's
+[environment secret instructions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets#creating-secrets-for-an-environment).
+
+The environment page contains these **Add variable** and **Add secret** controls.
+The separate **Settings → Secrets and variables → Actions** page manages
+repository-level values; follow the environment steps above for this setup.
 
 Use the storage-zone password, not a Bunny account API key or a Pull Zone token
 authentication key. Although Bunny calls the HTTP header `AccessKey`, its value
@@ -150,24 +202,45 @@ is the **storage-zone password**, as documented in the
 Keep it in GitHub secrets, never committed files or browser code. The workflow
 passes it only to the upload step after installation and checks.
 Pull requests and non-`main` manual runs cannot deploy. Forks must configure
-their own environment and zones; they do not receive this repository's secrets.
+their own environment and zones; secrets are not copied from the upstream
+repository.
 
 ## 5. First deployment and verification
 
-1. After merging the deployment workflow into `main` and finishing the setup,
-   open **Actions → Deploy live preview → Run workflow** and select **`main`**.
-   This also retries a failed upload after fixing configuration.
-2. Check that the main CI gate, installation, build, and uploads succeed.
-   The run summary records the actual deployed commit.
-3. Visit the default `b-cdn.net` hostname and your custom hostname
+The workflow file must be on your repository's default branch (`main` for the
+supplied workflows) and include `workflow_dispatch`; the provided
+[`deploy.yml`](../.github/workflows/deploy.yml) already does. Starting a manual
+run requires write access and GitHub Actions to be enabled for the repository.
+
+1. Finish the Bunny and GitHub setup above, and confirm **Game checks** succeeded
+   for the current `main` commit in your repository. On a new fork or copy,
+   push or merge your hostname configuration changes to `main` after enabling
+   Actions so it has its own push CI run; upstream CI results do not satisfy
+   the deployment gate in your repository.
+2. Open your repository's **Actions** tab. In the **left sidebar**, click
+   **Deploy live preview**.
+3. Click **Run workflow** above the run list. In the dropdown, select `main`
+   in **Branch**, then click the **Run workflow** button inside the dropdown.
+   The workflow has no input fields. This also retries a failed upload after
+   fixing configuration.
+4. Open the new run, then its **deploy** job to inspect the steps. Confirm the
+   CI gate, installation, build, and **Upload production files** succeed.
+   Return to the run's **Summary** to see the actual deployed commit.
+5. Visit the default `b-cdn.net` hostname and your custom hostname
    (for example, **https://game.example.com/**).
    Verify the title, deploy a convoy, and confirm the timer advances, drones
    render, and music starts after interaction. Check desktop and mobile controls.
-4. In browser developer tools, confirm JS/CSS return successful responses and
+6. In browser developer tools, confirm JS/CSS return successful responses and
    CDN responses show the expected `cdn-pullzone` ID. Check the entry page's
    `Cache-Control: no-cache` header and HTTPS certificate. Request both `/` and
    `/index.html` twice; HTML should bypass the CDN cache rather than return
    `cdn-cache: HIT`. After the next game change, a normal reload should show it.
+
+If **Run workflow** is missing, select the workflow in the sidebar first, then
+check write access and that `deploy.yml` with `workflow_dispatch` is on the
+default branch. If Actions or the workflow is disabled, resolve that before
+retrying. GitHub's [manual workflow instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow?tool=webui)
+document the button, branch dropdown, and prerequisites.
 
 Optional command-line checks:
 
