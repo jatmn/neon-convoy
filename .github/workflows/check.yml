@@ -35,6 +35,8 @@ jobs:
           package-manager-cache: false
       - name: Test CI routing (no dependencies required)
         run: node --test tests/ci.test.ts
+      - name: Test owner-command authorization (no dependencies required)
+        run: node --test scripts/pullfrog-command-check.test.ts
       - name: Find successfully checked main baseline
         id: baseline
         if: github.event_name == 'push'
