@@ -99,11 +99,11 @@ If Chromium is already installed outside Playwright's expected location, set `PL
 
 ## Continuous integration
 
-GitHub Actions runs on pull requests (including forks) and pushes to `main`, using Ubuntu and Node 22.18, read-only permissions, timeouts, and cancellation of superseded runs. The small selection job tests the routing rules without installing dependencies. Jobs run only when their inputs change:
+GitHub Actions runs on pull requests (including forks) and pushes to `main`, using Ubuntu and Node 22.18, read-only permissions, timeouts, and cancellation of superseded runs. The small selection job tests the routing rules and owner-command authorization without installing dependencies. Conditional checks are selected by changed inputs:
 
 | Changed surface | Checks |
 | --- | --- |
-| Documentation or screenshots | Routing and aggregate only |
+| Documentation or screenshots | Routing, owner-command authorization, and aggregate only |
 | Engine, levels, or shared game types | Types, simulation, browser controls, distribution |
 | UI, renderer, audio, or Vite config | Types, browser controls, distribution |
 | CSS, entry HTML, favicon, or public assets | Browser controls, distribution |
@@ -117,14 +117,15 @@ GitHub Actions runs on pull requests (including forks) and pushes to `main`, usi
 | Routing code/tests | Routing and types |
 | Package manifests, TypeScript config, or check workflow | All checks |
 
-Mixed changes run the union of their checks. Simulation needs no dependency installation. Browser jobs install the pinned Playwright Chromium and retain failure artifacts for seven days. The distribution job rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
+Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. Browser jobs install the pinned Playwright Chromium and retain failure artifacts for seven days. The distribution job rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
 
 Documentation-only updates within a PR reuse successful validation when the
 selected checks and all tracked inputs outside documentation are identical.
 The fingerprint includes the actual merge tree, so base-branch code changes
 invalidate reuse too. Only successful validation saves a marker; cache misses
 or unavailable caches run the selected checks normally. Routing and the stable
-aggregate still run so required checks can complete. GitHub-managed CodeQL and
+aggregate still run so required checks can complete; owner-command authorization
+also runs regardless of validation reuse. GitHub-managed CodeQL and
 third-party integrations have their own scheduling outside these workflows.
 
 On `main`, selection compares against the latest successfully checked ancestor.
