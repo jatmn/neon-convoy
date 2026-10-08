@@ -24,7 +24,9 @@ if (event.action !== 'created' || event.repository?.full_name !== REPOSITORY ||
 const firstLine = comment.body.split('\n', 1)[0].replace(/\r$/, '');
 const command = /^ {0,3}@pullfrog[ \t]+([^\r\n]+)$/i.exec(firstLine);
 const instruction = command?.[1].trimStart() ?? '';
-if (!/^[\p{L}\p{N}]/u.test(instruction)) process.exit(0);
+// Unicode letter membership alone also admits invisible Hangul fillers.
+if (!/^[\p{L}\p{N}]/u.test(instruction) ||
+    /^\p{Default_Ignorable_Code_Point}/u.test(instruction)) process.exit(0);
 
 const number = event.issue?.number;
 const commentId = comment.id;

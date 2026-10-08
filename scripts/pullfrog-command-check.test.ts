@@ -82,6 +82,40 @@ test('passive, bare, quoted and invisible commands are rejected', () => {
   }
 });
 
+test('invisible Unicode letters cannot authorize issue or PR commands', () => {
+  const bodies = [
+    '@pullfrog \u115f', '@pullfrog \u1160', '@pullfrog \u3164', '@pullfrog \uffa0',
+    '@pullfrog \u115f\u1160\u3164\uffa0\u200b',
+    '@pullfrog \u3164\nreview this PR',
+    '@pullfrog \u3164\n' + '界'.repeat(30000),
+  ];
+  for (const isPr of [true, false]) {
+    for (const body of bodies) {
+      const event = structuredClone(EVENT);
+      if (!isPr) Reflect.deleteProperty(event.issue, 'pull_request');
+      event.comment.body = body;
+      const result = run(event);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.output, '', JSON.stringify({ isPr, body }));
+    }
+  }
+});
+
+test('visible Unicode commands authorize without changing the original instruction', () => {
+  for (const isPr of [true, false]) {
+    for (const body of ['@pullfrog 審査してください', '@pullfrog بررسی\u200cکنید']) {
+      const event = structuredClone(EVENT);
+      if (!isPr) Reflect.deleteProperty(event.issue, 'pull_request');
+      event.comment.body = body;
+      const result = run(event);
+      assert.equal(result.status, 0, result.stderr);
+      assert.ok(result.output.includes('authorized=true'));
+      const payload = JSON.parse(result.output.split('\n')[0].slice('payload='.length));
+      assert.ok(payload.prompt.includes(body));
+    }
+  }
+});
+
 test('oversized commands use the authorized event snapshot', () => {
   const result = run({ ...EVENT, comment: { ...EVENT.comment, body: '@pullfrog review ' + '界'.repeat(30000) } });
   assert.equal(result.status, 0, result.stderr);
