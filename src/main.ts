@@ -34,6 +34,9 @@ function $<T extends HTMLElement = HTMLElement>(selector: string): T {
   if (!element) throw new Error(`Missing required element: ${selector}`);
   return element;
 }
+const esc = (value: unknown) => String(value).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+// Parse markup in an inert document and move the nodes in.
+function setHTML(element: HTMLElement, html: string) { element.replaceChildren(...new DOMParser().parseFromString(html, 'text/html').body.childNodes); }
 let progress: Record<number, { completed?: boolean; score?: number; saved?: number }> = {};
 let muted = false;
 try { progress = JSON.parse(localStorage.getItem('neon-convoy-progress') || '{}'); muted = localStorage.getItem('neon-convoy-muted') === 'true'; } catch { /* Storage is optional. */ }
@@ -53,7 +56,7 @@ let toastTimer: ReturnType<typeof setTimeout> | undefined;
 const audio = new AudioEngine();
 audio.setMuted(muted);
 
-$('#app').innerHTML = `
+setHTML($('#app'), `
   <header class="topbar">
     <a class="brand" href="./" aria-label="Neon Convoy home"><span class="brand-symbol">${icon('logo')}</span><span>NEON<span class="brand-light">CONVOY</span><small>AUTONOMOUS MINDS. HUMAN INSTINCT.</small></span></a>
     <nav class="top-actions" aria-label="Game options"><span class="system-status"><i></i> SYSTEM ONLINE</span><button class="icon-button" id="sound" aria-label="Mute music" title="Toggle music (M)">${icon('sound')}</button><button class="icon-button" id="help" aria-label="How to play" title="How to play">${icon('help')}</button><button class="icon-button" id="settings" aria-label="Settings" title="Settings">${icon('gear')}</button></nav>
@@ -87,7 +90,7 @@ $('#app').innerHTML = `
     </section>
   </main>
   <dialog id="modal"><button id="modal-close" class="icon-button modal-close" aria-label="Close dialog">${icon('close')}</button><div id="modal-content"></div></dialog>
-`;
+`);
 const canvas = $<HTMLCanvasElement>('#game');
 const renderer = new Renderer(canvas);
 function difficultyLabel(level: Level) { return ['FOUNDATIONS','TRAINING','TACTICAL','ADVANCED','EXPERT'][Number(level.difficulty)-1] || level.difficulty || 'TACTICAL'; }
@@ -100,7 +103,7 @@ function drawLevels() {
   $('#campaign-complete').textContent = `${completed} / 10 sectors cleared`;
   $('#campaign-percent').textContent = `${completed * 10}%`;
   $('#campaign-fill').style.width = `${completed * 10}%`;
-  $('#levels').innerHTML = LEVELS.map((l,i) => `<button class="level-card ${i === levelIndex ? 'current' : ''} ${progress[l.id]?.completed ? 'completed' : ''}" data-level="${i}" ${i === levelIndex ? 'aria-current="step"' : ''}><span class="level-number">${pad(i+1)}</span><span class="level-card-title"><strong>${l.name}</strong><small>${difficultyLabel(l)}</small></span><span class="level-status">${progress[l.id]?.completed ? '✓' : i === levelIndex ? '↗' : '·'}</span></button>`).join('');
+  setHTML($('#levels'), LEVELS.map((l,i) => `<button class="level-card ${i === levelIndex ? 'current' : ''} ${progress[l.id]?.completed ? 'completed' : ''}" data-level="${i}" ${i === levelIndex ? 'aria-current="step"' : ''}><span class="level-number">${pad(i+1)}</span><span class="level-card-title"><strong>${esc(l.name)}</strong><small>${esc(difficultyLabel(l))}</small></span><span class="level-status">${progress[l.id]?.completed ? '✓' : i === levelIndex ? '↗' : '·'}</span></button>`).join(''));
   document.querySelectorAll<HTMLButtonElement>('[data-level]').forEach(b => b.addEventListener('click', () => loadLevel(Number(b.dataset.level))));
 }
 function loadLevel(index: number) {
@@ -122,7 +125,7 @@ function loadLevel(index: number) {
   $('#level-subtitle').textContent = level.subtitle || 'Find the route. Give the order. Bring them home.';
   $('#sector-label').textContent = `SECTOR ${pad(index+1)}`;
   $('#field-coordinates').textContent = `SECTOR ${pad(index+1)} / LIVE FEED`;
-  $('#difficulty').innerHTML = `<span>${difficultyLabel(level)}</span><div>${Array.from({length:5},(_,i) => `<i class="${i < Number(level.difficulty || 1) ? 'on' : ''}"></i>`).join('')}</div>`;
+  setHTML($('#difficulty'), `<span>${esc(difficultyLabel(level))}</span><div>${Array.from({length:5},(_,i) => `<i class="${i < Number(level.difficulty || 1) ? 'on' : ''}"></i>`).join('')}</div>`);
   $('#briefing').textContent = level.briefing;
   selectedTool = toolInfo.find(t => game.inventory[t.id] > 0)?.id || 'laser';
   drawLevels(); updateTools(); updateHUD();
@@ -151,7 +154,7 @@ function updateHUD() {
   $('#start-banner').hidden = game.status !== 'ready' || editing;
   $('#pause-label').hidden = !game.paused || game.status !== 'running' || editing;
   const running = game.status === 'running' && !game.paused;
-  $('#pause').innerHTML = `${icon(running ? 'pause' : 'play')}<span>${running ? 'Pause' : 'Play'}</span>`;
+  setHTML($('#pause'), `${icon(running ? 'pause' : 'play')}<span>${running ? 'Pause' : 'Play'}</span>`);
   $('#pause').setAttribute('aria-label',running ? 'Pause' : 'Play');
   $('#feed-status').textContent = editing ? 'TERRAIN LAB / EDITING' : game.status === 'ready' ? 'AWAITING DEPLOYMENT' : game.status === 'won' ? 'CONVOY EXTRACTED' : game.status === 'lost' ? 'SIGNAL LOST' : game.paused ? 'SIMULATION PAUSED' : 'CONVOY IN TRANSIT';
   $('#speed span').textContent = `${game.speed || 1}×`;
@@ -167,7 +170,7 @@ async function playPause() {
 function openModal(html: string, pause = true) {
   modalWasRunning = pause && game.status === 'running' && !game.paused;
   if (modalWasRunning) { game.togglePause(); audio.setPaused(true); }
-  $('#modal-content').innerHTML = html;
+  setHTML($('#modal-content'), html);
   if (!$<HTMLDialogElement>('#modal').open) $<HTMLDialogElement>('#modal').showModal();
   updateHUD();
 }
@@ -188,14 +191,14 @@ function showResult() {
   $('#result-next').onclick = () => loadLevel(won ? (levelIndex+1)%LEVELS.length : levelIndex);
 }
 function toggleMusic() { muted = !muted; audio.setMuted(muted); if(!muted && game.status==='running' && !game.paused) audio.unlock(); try { localStorage.setItem('neon-convoy-muted',String(muted)); } catch {} updateSound(); }
-function updateSound() { $('#sound').innerHTML = icon(muted ? 'muted' : 'sound'); $('#sound').setAttribute('aria-label',muted ? 'Unmute music' : 'Mute music'); }
+function updateSound() { setHTML($('#sound'), icon(muted ? 'muted' : 'sound')); $('#sound').setAttribute('aria-label',muted ? 'Unmute music' : 'Mute music'); }
 function finishEdit() { editing=false; drawing=false; $('#editor').hidden=true; $('#sandbox').setAttribute('aria-pressed','false'); }
 $('#deploy').onclick = playPause;
 $('#pause').onclick = playPause;
 $('#speed').onclick = () => { game.speed = game.speed === 2 ? 1 : 2; updateHUD(); };
 $('#restart').onclick = () => loadLevel(levelIndex);
 $('#sound').onclick = toggleMusic;
-$('#hint').onclick = () => { openModal(`<div class="section-eyebrow">TACTICAL INTELLIGENCE</div><h2>A little guidance.</h2><p>${game.level.hint}</p><p class="muted-copy">Pause with Space to assign tools precisely. Restart any time with R.</p><button class="primary-button" id="hint-close">Back to the convoy</button>`); $('#hint-close').onclick = closeModal; };
+$('#hint').onclick = () => { openModal(`<div class="section-eyebrow">TACTICAL INTELLIGENCE</div><h2>A little guidance.</h2><p>${esc(game.level.hint)}</p><p class="muted-copy">Pause with Space to assign tools precisely. Restart any time with R.</p><button class="primary-button" id="hint-close">Back to the convoy</button>`); $('#hint-close').onclick = closeModal; };
 $('#help').onclick = () => openModal(`<div class="section-eyebrow">COMMANDER'S FIELD GUIDE</div><h2>Autonomous. Not invincible.</h2><p>Your drones drive forward, turn at walls, and roll off edges. Guide enough of them into the coral extraction gate before time runs out.</p><ol class="instructions"><li><strong>Deploy your convoy.</strong> Drones roll out one by one. Watch the terrain before giving orders.</li><li><strong>Select a tool. Click a drone.</strong> Each assignment uses one charge. Laser and drill reshape rock; bridges build a route.</li><li><strong>Pause and plan.</strong> Space pauses; you can still assign tools. Blockers redirect traffic; jets protect against long falls.</li><li><strong>Bring them home.</strong> Meet the rescue target. More rescues, spare tools, and remaining time improve your score.</li></ol><div class="shortcuts"><span><kbd>1–6</kbd> Select tool</span><span><kbd>Space</kbd> Pause</span><span><kbd>F</kbd> 2× speed</span><span><kbd>R</kbd> Restart</span><span><kbd>M</kbd> Music</span></div><p class="muted-copy">Violet rock is destructible. Striped steel is permanent. Orange hazards are fatal. Terrain lab lets you paint and erase terrain in an unranked practice run.</p>`);
 $('#settings').onclick = () => { openModal(`<div class="section-eyebrow">CONTROL ROOM</div><h2>Set the atmosphere.</h2><p>Each sector has its own original, looping synthwave sequence.</p><label class="volume-label">Music volume <input id="volume" type="range" min="0" max="1" step="0.05" value="${audio.volume ?? 0.4}" /></label><button class="secondary-button" id="settings-sound">${muted ? 'Enable music' : 'Mute music'}</button><p class="muted-copy">Progress saves automatically in this browser. All ten sectors are available from the campaign list.</p>`); $('#volume').oninput = e => audio.setVolume(Number((e.target as HTMLInputElement).value)); $('#settings-sound').onclick = () => { toggleMusic(); $('#settings-sound').textContent = muted ? 'Enable music' : 'Mute music'; }; };
 $('#credits').onclick = () => openModal(`<div class="section-eyebrow">FIELD NOTES / 001</div><h2>Inspired by a classic.<br>Built for a new convoy.</h2><p>Neon Convoy is an original browser puzzle game inspired by the autonomous crowds, limited skill assignments, and terrain puzzles of Lemmings (1991). The drones, levels, art, and synthesized music here are original.</p><p>Research references: <a href="https://en.wikipedia.org/wiki/Lemmings_(video_game)" target="_blank" rel="noreferrer">Wikipedia: Lemmings</a> and <a href="https://www.youtube.com/watch?v=RnPXf3r5IKc" target="_blank" rel="noreferrer">1991 gameplay, levels 1–60</a>.</p><p class="muted-copy">Not affiliated with the owners of Lemmings. Made with Canvas 2D, Web Audio, and a little human instinct.</p>`);
