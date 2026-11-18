@@ -6,7 +6,7 @@ export function checksFor(paths: string[]) {
   const shared = paths.some(path => /^(package(-lock)?\.json|tsconfig[^/]*\.json|\.github\/workflows\/check\.yml)$/.test(path));
   const app = paths.some(path => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.ts)$/.test(path));
   return {
-    types: shared || paths.some(path => /\.([cm]?ts|tsx)$/.test(path)),
+    types: shared || paths.some(path => path === '.oxlintrc.json' || /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)),
     simulation: shared || paths.some(path => /^(src\/(engine|levels|types)\.ts|tests\/engine\.test\.ts)$/.test(path)),
     browser: shared || app || paths.some(path => /^(tests\/browser\.spec\.ts|playwright\.config\.ts)$/.test(path)),
     distribution: shared || app || paths.some(path => /^(scripts\/standalone\.ts|playwright\.distribution\.config\.ts|LICENSE|play\.html|tests\/distribution\.spec\.ts|playwright\.config\.ts)$/.test(path)),

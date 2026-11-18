@@ -22,6 +22,13 @@ test('shared tooling and the workflow validate every surface', () => {
   }
 });
 
+test('lint configuration and JavaScript changes run the types and lint job', () => {
+  for (const path of ['.oxlintrc.json', 'scripts/helper.mjs']) {
+    assert.deepEqual(checksFor([path]), { ...none, types: true }, path);
+  }
+  assert.deepEqual(checksFor(['src/helper.js']), { ...game, simulation: false });
+});
+
 test('simulation changes exercise their browser and build consumers', () => {
   for (const path of ['src/engine.ts', 'src/levels.ts', 'src/types.ts']) assert.deepEqual(checksFor([path]), game, path);
   assert.deepEqual(checksFor(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
