@@ -89,6 +89,10 @@ Every PR should:
 Use the Bun version pinned in `package.json`. Install dependencies with `bun install --frozen-lockfile`; use
 `bun run dev` for local development.
 
+Install [hk](https://hk.jdx.dev/) 2.13.0 and Pkl, then run `hk install` in the checkout.
+The pre-commit hook formats and lints staged files. The pre-push hook runs the same full
+game checks as CI on the commits being pushed. Install Chromium once with the command below.
+
 For code, tooling, dependency, or build changes, run the full local validation:
 
 ```sh
