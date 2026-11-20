@@ -176,7 +176,7 @@ void test(
       const result = spawnSync(process.execPath, [script], {
         cwd: dir,
         encoding: 'utf8',
-        env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, GAME_CHECK_STARTED_MS: '' },
       });
       assert.equal(result.status, 1, result.stderr);
       assert.match(
