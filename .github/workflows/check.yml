@@ -45,7 +45,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
-          key: node-modules-ubuntu26-${{ runner.arch }}-${{ hashFiles('bun.lock', 'scripts/install-bun.sh') }}
+          key: node-modules-ubuntu26-${{ runner.arch }}-${{ hashFiles('package.json', 'bun.lock', 'bunfig.toml', 'scripts/install-bun.sh') }}
       - name: Record dependency cache result
         env:
           CACHE_HIT: ${{ steps.dependencies.outputs.cache-hit }}
