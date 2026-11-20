@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { changedPaths, checksFor, validationKey } from '../scripts/ci.ts';
+import { checksFor } from '../scripts/ci.ts';
 
 const none = { types: false, simulation: false, browser: false, distribution: false, deployment: false };
 const game = { ...none, types: true, simulation: true, browser: true, distribution: true };
@@ -54,19 +54,19 @@ test('deployment and routing changes skip unrelated game tests', () => {
   for (const path of ['scripts/ci.ts', 'tests/ci.test.ts']) assert.deepEqual(checksFor([path]), { ...none, types: true });
 });
 
-test('CI entry point handles PR base divergence, push deletions, renames and new branches', () => {
+test('CI entry point handles PR base divergence, deletions and renames', () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-ci-'));
   const script = fileURLToPath(new URL('../scripts/ci.ts', import.meta.url));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   const commit = () => { git('add', '.'); git('commit', '-qm', 'fixture'); return git('rev-parse', 'HEAD'); };
-  const run = (base: string, head: string, event: string) => {
+  const run = (base: string, head: string) => {
     const output = join(dir, 'outputs');
     writeFileSync(output, '');
-    const stdout = execFileSync(process.execPath, [script, base, head, event], {
+    const stdout = execFileSync(process.execPath, [script, base, head], {
       cwd: dir, encoding: 'utf8', env: { ...process.env, GITHUB_OUTPUT: output },
     });
     assert.equal(stdout, readFileSync(output, 'utf8'));
-    return Object.fromEntries(stdout.trim().split('\n').filter(line => !line.startsWith('key=')).map(line => {
+    return Object.fromEntries(stdout.trim().split('\n').map(line => {
       const [key, value] = line.split('='); return [key, value === 'true'];
     }));
   };
@@ -82,62 +82,27 @@ test('CI entry point handles PR base divergence, push deletions, renames and new
     git('switch', '-q', 'main');
     writeFileSync(join(dir, 'package.json'), '{}');
     const advancedBase = commit();
-    assert.deepEqual(run(advancedBase, docs, 'pull_request'), none, 'base-only changes are excluded');
+    assert.deepEqual(run(advancedBase, docs), none, 'base-only changes are excluded');
     git('switch', '-q', 'docs');
     git('mv', 'play.html', 'old-play.html');
     const renamed = commit();
-    assert.deepEqual(run(docs, renamed, 'push'), { ...none, distribution: true }, 'old path of rename is included');
+    assert.deepEqual(run(docs, renamed), { ...none, distribution: true }, 'old path of rename is included');
     git('switch', '-q', 'main');
     git('rm', 'package.json');
     const deleted = commit();
-    assert.deepEqual(run(advancedBase, deleted, 'push'), all, 'deleted paths are included');
-    assert.deepEqual(run('0'.repeat(40), base, 'push'), all, 'initial push validates everything');
+    assert.deepEqual(run(advancedBase, deleted), all, 'deleted paths are included');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('validation reuse ignores docs but includes merge-base inputs, modes, deletions and selected checks', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'neon-validation-'));
-  const original = process.cwd();
-  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
-  const commit = () => { git('add', '.'); git('commit', '-qm', 'fixture'); return git('rev-parse', 'HEAD'); };
-  try {
-    git('init', '-q', '-b', 'main');
-    git('config', 'user.name', 'CI fixture'); git('config', 'user.email', 'ci@example.invalid');
-    writeFileSync(join(dir, 'index.html'), 'game');
-    const base = commit();
-    process.chdir(dir);
-    const key = validationKey(base, game);
-    git('switch', '-qc', 'feature');
-    writeFileSync(join(dir, 'README.md'), 'docs');
-    const docs = commit();
-    assert.equal(validationKey(docs, game), key, 'docs-only pushes reuse identical game inputs');
-    assert.notEqual(validationKey(docs, none), key, 'partial validation cannot bless other surfaces');
-    git('switch', '-q', 'main');
-    writeFileSync(join(dir, 'index.html'), 'changed upstream game');
-    commit();
-    git('merge', '-q', '--no-edit', 'feature');
-    assert.notEqual(validationKey('HEAD', game), key, 'actual merge tree detects base-branch code changes');
-    const mergedKey = validationKey('HEAD', game);
-    git('update-index', '--chmod=+x', 'index.html'); git('commit', '-qm', 'mode');
-    assert.notEqual(validationKey('HEAD', game), mergedKey, 'file modes are inputs too');
-    const modeKey = validationKey('HEAD', game);
-    git('rm', '-qf', 'index.html'); commit();
-    assert.notEqual(validationKey('HEAD', game), modeKey, 'deleted files invalidate validation');
-  } finally {
-    process.chdir(original);
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('required aggregate rejects failed selection and selected jobs, including cancelled runs', () => {
+test('required aggregate rejects malformed selections and unsuccessful checks', () => {
   const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
   const source = workflow.match(/python3 - <<'PY'\n([\s\S]*?)          PY/)?.[1];
   assert.ok(source);
   const script = source.split('\n').map(line => line.slice(10)).join('\n');
   const results = {
-    changes: { result: 'success', outputs: { ...Object.fromEntries(Object.entries(game).map(([k, v]) => [k, String(v)])), reused: 'false' } },
+    changes: { result: 'success', outputs: { types: 'true', simulation: 'true', browser: 'true', distribution: 'true', deployment: 'true', uploader_result: 'success' } },
     types: { result: 'success' }, simulation: { result: 'success' },
     browser: { result: 'success' }, distribution: { result: 'success' },
   };
@@ -147,54 +112,64 @@ test('required aggregate rejects failed selection and selected jobs, including c
     results.browser.result = failure;
     assert.notEqual(check(), 0, failure);
   }
-  results.changes.outputs.reused = 'true';
-  for (const job of ['types', 'simulation', 'browser', 'distribution'] as const) results[job].result = 'skipped';
-  assert.equal(check(), 0, 'matching successful validation permits skipped jobs');
+  results.browser.result = 'success';
+  Reflect.deleteProperty(results.changes.outputs, 'browser');
+  assert.notEqual(check(), 0, 'an invalid selection cannot bless a job');
+  results.changes.outputs.browser = 'true';
+  assert.equal(check(), 0, 'restored valid selection');
   results.changes.result = 'failure';
-  assert.notEqual(check(), 0, 'cache hit never bypasses failed routing or uploader tests');
+  assert.notEqual(check(), 0, 'selection or tooling test failure always fails the aggregate');
+  results.changes.result = 'success';
+
+  const outputs = results.changes.outputs;
+  outputs.uploader_result = 'skipped';
+  assert.notEqual(check(), 0, 'a selected uploader test must succeed');
+  outputs.deployment = 'false';
+  assert.equal(check(), 0, 'an unselected uploader test may be skipped');
+  outputs.deployment = 'invalid';
+  assert.notEqual(check(), 0, 'an invalid uploader selection fails the aggregate');
+  Reflect.deleteProperty(outputs, 'deployment');
+  assert.notEqual(check(), 0, 'a missing uploader selection fails the aggregate');
 });
 
-test('main baseline preserves pending game changes across docs pushes and fails safe without an ancestor', { skip: process.platform === 'win32' }, () => {
-  const dir = mkdtempSync(join(tmpdir(), 'neon-main-baseline-'));
-  const original = process.cwd();
+test('PR selection requires an active merge queue; merge groups and pushes always run every check', { skip: process.platform === 'win32' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neon-queue-'));
   const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
-  const source = workflow.match(/- name: Find successfully checked main baseline[\s\S]*?run: \|\n((?:          .*\n)+)/)?.[1];
-  assert.ok(source);
-  const script = source.split('\n').map(line => line.slice(10)).join('\n');
-  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
-  const commit = () => { git('add', 'index.html', 'README.md'); git('commit', '-qm', 'fixture'); return git('rev-parse', 'HEAD'); };
+  assert.match(workflow, /^  merge_group:\n    types: \[checks_requested\]$/m);
+  assert.match(workflow, /id: queue\n        if: github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == 'main'/);
+  const step = (name: string) => {
+    const match = workflow.match(new RegExp(`- name: ${name}\\n([\\s\\S]*?)        run: \\|\\n((?:          .*\\n)+)`));
+    assert.ok(match, name);
+    return { configuration: match[1], command: match[2].split('\n').map(line => line.slice(10)).join('\n') };
+  };
+  const lookup = step('Detect the main merge queue');
+  const selection = step('Select checks to run');
+  assert.match(lookup.configuration, /GH_TOKEN:/);
+  assert.match(selection.configuration, /QUEUE_ACTIVE: \$\{\{ steps\.queue\.outputs\.active \}\}/);
+  assert.doesNotMatch(selection.configuration, /GH_TOKEN|github\.token/);
   try {
-    git('init', '-q', '-b', 'main');
-    git('config', 'user.name', 'CI fixture'); git('config', 'user.email', 'ci@example.invalid');
-    writeFileSync(join(dir, 'index.html'), 'game'); writeFileSync(join(dir, 'README.md'), 'docs');
-    const success = commit();
-    git('switch', '-qc', 'diverged');
-    writeFileSync(join(dir, 'index.html'), 'unrelated branch');
-    const unrelated = commit();
-    git('switch', '-q', 'main');
-    writeFileSync(join(dir, 'index.html'), 'pending game change');
-    const pending = commit();
-    writeFileSync(join(dir, 'README.md'), 'updated docs');
-    const head = commit();
-    writeFileSync(join(dir, 'gh'), '#!/bin/sh\n[ "$1" = api ] && [ "$2" = "repos/fixture/game/actions/workflows/check.yml/runs?event=push&branch=main&status=success&per_page=100" ] || exit 2\n[ "$TEST_API_FAILURE" != true ] || exit 1\nprintf "%s\\n" "$TEST_CANDIDATES"\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'gh'), '#!/bin/sh\n[ "$1" = api ] && [ "$2" = "repos/fixture/game/rules/branches/main" ] || exit 2\n[ "$API_RESULT" != error ] || exit 1\nprintf "%s\\n" "$API_RESULT"\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'node'), '#!/bin/sh\n[ "$1 $2 $3" = "scripts/ci.ts base head" ] || exit 2\nprintf "%s=false\\n" types simulation browser distribution deployment > "$GITHUB_OUTPUT"\n', { mode: 0o755 });
     const output = join(dir, 'outputs');
-    const baseline = (candidates: string, failure = false) => {
+    const run = (command: string, env: Record<string, string>) => {
       writeFileSync(output, '');
-      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
-        cwd: dir, stdio: 'ignore', env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, GH_REPO: 'fixture/game', HEAD_SHA: head, GITHUB_OUTPUT: output, TEST_CANDIDATES: candidates, TEST_API_FAILURE: String(failure) },
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], {
+        cwd: dir, encoding: 'utf8',
+        env: { PATH: `${dir}:${process.env.PATH}`, GITHUB_OUTPUT: output, ...env },
       });
-      assert.equal(result.status, 0);
-      return readFileSync(output, 'utf8').trim().slice(4);
+      assert.equal(result.status, 0, result.stderr);
+      return readFileSync(output, 'utf8').trim();
     };
-    process.chdir(dir);
-    assert.deepEqual(checksFor(changedPaths(pending, head, false)), none, 'last-push diff would wrongly skip pending validation');
-    const selectedBase = baseline(`${unrelated}\n${success}`);
-    assert.equal(selectedBase, success, 'ignore successful runs from nonancestor history');
-    assert.deepEqual(checksFor(changedPaths(selectedBase, head, false)), { ...none, browser: true, distribution: true }, 'docs push carries pending game checks');
-    assert.equal(baseline(''), '0'.repeat(40));
-    assert.equal(baseline(success, true), '0'.repeat(40), 'API failure cannot narrow validation');
+    const select = (queue: string) => run(selection.command, {
+      QUEUE_ACTIVE: queue.replace(/^active=/, ''), BASE_SHA: 'base', HEAD_SHA: 'head',
+    });
+    const outputFor = (checks: typeof all) => Object.entries(checks).map(([name, enabled]) => `${name}=${enabled}`).join('\n');
+    for (const rules of ['merge_queue', '', 'error']) {
+      const queue = run(lookup.command, { GH_REPO: 'fixture/game', API_RESULT: rules });
+      assert.equal(select(queue), outputFor(rules === 'merge_queue' ? none : all), rules || 'no rule');
+    }
+    assert.equal(select(''), outputFor(all), 'events that skip lookup run every check');
   } finally {
-    process.chdir(original);
     rmSync(dir, { recursive: true, force: true });
   }
 });

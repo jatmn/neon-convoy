@@ -99,7 +99,7 @@ If Chromium is already installed outside Playwright's expected location, set `PL
 
 ## Continuous integration
 
-GitHub Actions runs on pull requests (including forks) and pushes to `main`, using Ubuntu and Node 22.18, read-only permissions, timeouts, and cancellation of superseded runs. The small selection job tests the routing rules and owner-command authorization without installing dependencies. Conditional checks are selected by changed inputs:
+GitHub Actions runs on pull requests (including forks), merge groups, and pushes to `main`. It uses read-only permissions and cancels superseded runs. Merge groups and main pushes run every check. Pull requests also run every check unless an active merge queue ruleset applies to `main`. When the queue is active, PR feedback uses the changed inputs below.
 
 | Changed surface | Checks |
 | --- | --- |
@@ -119,21 +119,7 @@ GitHub Actions runs on pull requests (including forks) and pushes to `main`, usi
 
 Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. Browser jobs install the pinned Playwright Chromium and retain failure artifacts for seven days. The distribution job rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
 
-Documentation-only updates within a PR reuse successful validation when the
-selected checks and all tracked inputs outside documentation are identical.
-The fingerprint includes the actual merge tree, so base-branch code changes
-invalidate reuse too. Only successful validation saves a marker; cache misses
-or unavailable caches run the selected checks normally. Routing and the stable
-aggregate still run so required checks can complete; owner-command authorization
-also runs regardless of validation reuse. GitHub-managed CodeQL and
-third-party integrations have their own scheduling outside these workflows.
-
-On `main`, selection compares against the latest successfully checked ancestor.
-If a game push was not validated before a documentation push arrived, those
-game checks still run. Missing baseline history or an unavailable lookup runs
-all checks, so a later push cannot hide failed or cancelled validation.
-
-For branch protection, require the stable **Game checks** aggregate. It succeeds only when every selected check succeeds or has matching successful validation, and also reports success for documentation-only changes. Avoid requiring the individual conditional jobs. Repository visibility and branch protection are configured separately in GitHub settings.
+Require the stable **Game checks** status for `main`. In a public organization repository, add the merge queue to the same active ruleset with no bypass actors. The queue validates the combined commit against the latest base before it can merge. An unavailable rules lookup results in full PR validation. GitHub-managed CodeQL and third-party integrations have their own scheduling.
 
 ## Project layout
 
