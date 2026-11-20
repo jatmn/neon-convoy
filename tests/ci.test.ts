@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checksFor } from '../scripts/ci.ts';
+import { checksFor, validationChecks } from '../scripts/ci.ts';
 
 const none = { types: false, simulation: false, browser: false, distribution: false, deployment: false };
 const game = { ...none, types: true, simulation: true, browser: true, distribution: true };
@@ -38,7 +38,7 @@ test('UI and assets skip simulation but exercise browser and distribution', () =
   for (const path of ['src/main.ts', 'src/audio.ts', 'src/renderer.ts']) {
     assert.deepEqual(checksFor([path]), { ...game, simulation: false }, path);
   }
-  for (const path of ['src/style.css', 'index.html', 'favicon.svg', 'public/texture.png']) {
+  for (const path of ['src/style.css', 'index.html', 'favicon.svg', '.gitattributes', 'public/texture.png']) {
     assert.deepEqual(checksFor([path]), { ...none, browser: true, distribution: true }, path);
   }
 });
@@ -69,7 +69,7 @@ test('deployment and routing changes skip unrelated game tests', () => {
   for (const path of ['scripts/ci.ts', 'tests/ci.test.ts']) assert.deepEqual(checksFor([path]), { ...none, types: true });
 });
 
-test('CI entry point handles PR base divergence, deletions and renames', () => {
+test('CI entry point handles PR base divergence, deletions, renames and full validation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-ci-'));
   const script = fileURLToPath(new URL('../scripts/ci.ts', import.meta.url));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
@@ -90,7 +90,7 @@ test('CI entry point handles PR base divergence, deletions and renames', () => {
     git('config', 'user.name', 'CI fixture'); git('config', 'user.email', 'ci@example.invalid');
     writeFileSync(join(dir, 'play.html'), 'standalone');
     writeFileSync(join(dir, '.gitignore'), 'outputs\n');
-    const base = commit();
+    commit();
     git('switch', '-qc', 'docs');
     writeFileSync(join(dir, 'README with spaces.md'), 'documentation');
     const docs = commit();
@@ -98,6 +98,11 @@ test('CI entry point handles PR base divergence, deletions and renames', () => {
     writeFileSync(join(dir, 'package.json'), '{}');
     const advancedBase = commit();
     assert.deepEqual(run(advancedBase, docs), none, 'base-only changes are excluded');
+    git('switch', '-qc', 'runner', docs);
+    mkdirSync(join(dir, 'scripts'));
+    writeFileSync(join(dir, 'scripts/verify.ts'), 'export {};');
+    const runner = commit();
+    assert.deepEqual(run(advancedBase, runner), all, 'runner-only changes exercise every surface');
     git('switch', '-q', 'docs');
     git('mv', 'play.html', 'old-play.html');
     const renamed = commit();
@@ -106,50 +111,93 @@ test('CI entry point handles PR base divergence, deletions and renames', () => {
     git('rm', 'package.json');
     const deleted = commit();
     assert.deepEqual(run(advancedBase, deleted), all, 'deleted paths are included');
+    assert.deepEqual(validationChecks('full', '', docs), all, 'full validation runs everything on a docs-only revision');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('required aggregate rejects malformed selections and unsuccessful checks', () => {
-  const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
-  const source = workflow.match(/python3 - <<'PY'\n([\s\S]*?)          PY/)?.[1];
-  assert.ok(source);
-  const script = source.split('\n').map(line => line.slice(10)).join('\n');
-  const results = {
-    changes: { result: 'success', outputs: { types: 'true', simulation: 'true', browser: 'true', distribution: 'true', deployment: 'true', uploader_result: 'success' } },
-    types: { result: 'success' }, simulation: { result: 'success' },
-    browser: { result: 'success' }, distribution: { result: 'success' },
-  };
-  const check = () => spawnSync('python3', ['-c', script], { env: { ...process.env, RESULTS: JSON.stringify(results) }, stdio: 'ignore' }).status;
-  assert.equal(check(), 0);
-  for (const failure of ['failure', 'cancelled', 'skipped']) {
-    results.browser.result = failure;
-    assert.notEqual(check(), 0, failure);
+test('required game checks fail and report all unsuccessful commands', { skip: process.platform === 'win32' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neon-verify-'));
+  const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
+  try {
+    writeFileSync(join(dir, 'npm'), '#!/bin/sh\ncase "$2" in typecheck|build) exit 1 ;; esac\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'node'), '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'npx'), '#!/bin/sh\nexit 3\n', { mode: 0o755 });
+    const run = (...args: string[]) => spawnSync(process.execPath, [script, ...args], {
+      cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    });
+    const result = run();
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /^Failed game checks: Unit tests, TypeScript, Production build$/m);
+    assert.match(result.stderr, /^Blocked game checks: Distribution$/m);
+    assert.match(result.stdout, /Browser controls: passed/);
+    const install = run('full', '', '', '--install-chromium', '--check-committed');
+    assert.equal(install.status, 1, install.stderr);
+    assert.match(install.stderr, /^Failed game checks: Unit tests, TypeScript, Chromium setup, Production build$/m);
+    assert.match(install.stderr, /^Blocked game checks: Browser controls, Standalone parity, Distribution$/m);
+    assert.doesNotMatch(install.stdout, /^Browser controls: started$/m);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-  results.browser.result = 'success';
-  Reflect.deleteProperty(results.changes.outputs, 'browser');
-  assert.notEqual(check(), 0, 'an invalid selection cannot bless a job');
-  results.changes.outputs.browser = 'true';
-  assert.equal(check(), 0, 'restored valid selection');
-  results.changes.result = 'failure';
-  assert.notEqual(check(), 0, 'selection or tooling test failure always fails the aggregate');
-  results.changes.result = 'success';
+});
 
-  const outputs = results.changes.outputs;
-  outputs.uploader_result = 'skipped';
-  assert.notEqual(check(), 0, 'a selected uploader test must succeed');
-  outputs.deployment = 'false';
-  assert.equal(check(), 0, 'an unselected uploader test may be skipped');
-  outputs.deployment = 'invalid';
-  assert.notEqual(check(), 0, 'an invalid uploader selection fails the aggregate');
-  Reflect.deleteProperty(outputs, 'deployment');
-  assert.notEqual(check(), 0, 'a missing uploader selection fails the aggregate');
+test('the CI runner installs packages once, only when a selected check needs them', { skip: process.platform === 'win32' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neon-dependencies-'));
+  const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  const run = (status: string, ...args: string[]) => spawnSync(process.execPath, [
+    script, ...args, '--install-dependencies', '--install-chromium', '--check-committed',
+  ], {
+    cwd: dir, encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, INSTALL_STATUS: status },
+  });
+  try {
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.name', 'CI fixture');
+    git('config', 'user.email', 'ci@example.invalid');
+    git('commit', '-qm', 'root', '--allow-empty');
+    writeFileSync(join(dir, 'README.md'), 'docs');
+    git('add', 'README.md'); git('commit', '-qm', 'docs');
+    writeFileSync(join(dir, 'fixture.ts'), 'export {};');
+    git('add', 'fixture.ts'); git('commit', '-qm', 'types');
+    writeFileSync(join(dir, 'node'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'npm'), [
+      '#!/bin/sh',
+      'case "$*" in',
+      '  ci) echo install >> installs; exit "$INSTALL_STATUS" ;;',
+      '  "run typecheck"|"run lint") test -f installs ;;',
+      '  *) exit 7 ;;',
+      'esac',
+    ].join('\n'), { mode: 0o755 });
+    writeFileSync(join(dir, 'npx'), '#!/bin/sh\nexit 7\n', { mode: 0o755 });
+
+    const docs = run('1', 'selected', 'HEAD~2', 'HEAD~1');
+    assert.equal(docs.status, 0, docs.stderr);
+    assert.match(docs.stdout, /^Unit tests: passed$/m);
+    assert.throws(() => readFileSync(join(dir, 'installs')), { code: 'ENOENT' });
+
+    const types = run('0', 'selected', 'HEAD~1', 'HEAD');
+    assert.equal(types.status, 0, types.stderr);
+    assert.match(types.stdout, /^TypeScript: passed$/m);
+    assert.match(types.stdout, /^Test lint: passed$/m);
+    assert.equal(readFileSync(join(dir, 'installs'), 'utf8'), 'install\n');
+
+    const failed = run('1', 'full', '', '');
+    assert.equal(failed.status, 1, failed.stderr);
+    assert.match(failed.stdout, /^Unit tests: passed$/m);
+    assert.match(failed.stderr, /^Failed game checks: Dependency install$/m);
+    assert.match(failed.stderr, /^Blocked game checks: Test lint, TypeScript, Chromium setup, Browser controls, Production build, Standalone parity, Distribution$/m);
+    assert.equal(readFileSync(join(dir, 'installs'), 'utf8'), 'install\ninstall\n');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('PR selection requires an active merge queue; merge groups and pushes always run every check', { skip: process.platform === 'win32' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-queue-'));
   const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
+  assert.doesNotMatch(workflow, /^ +-[^\n]*run: npm ci\s*$/m);
   assert.match(workflow, /^  merge_group:\n    types: \[checks_requested\]$/m);
   assert.match(workflow, /id: queue\n        if: github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == 'main'/);
   const step = (name: string) => {
@@ -158,13 +206,13 @@ test('PR selection requires an active merge queue; merge groups and pushes alway
     return { configuration: match[1], command: match[2].split('\n').map(line => line.slice(10)).join('\n') };
   };
   const lookup = step('Detect the main merge queue');
-  const selection = step('Select checks to run');
+  const verify = step('Run game checks');
   assert.match(lookup.configuration, /GH_TOKEN:/);
-  assert.match(selection.configuration, /QUEUE_ACTIVE: \$\{\{ steps\.queue\.outputs\.active \}\}/);
-  assert.doesNotMatch(selection.configuration, /GH_TOKEN|github\.token/);
+  assert.match(verify.configuration, /QUEUE_ACTIVE: \$\{\{ steps\.queue\.outputs\.active \}\}/);
+  assert.doesNotMatch(verify.configuration, /GH_TOKEN|github\.token/);
   try {
-    writeFileSync(join(dir, 'gh'), '#!/bin/sh\n[ "$1" = api ] && [ "$2" = "repos/fixture/game/rules/branches/main" ] || exit 2\n[ "$API_RESULT" != error ] || exit 1\nprintf "%s\\n" "$API_RESULT"\n', { mode: 0o755 });
-    writeFileSync(join(dir, 'node'), '#!/bin/sh\n[ "$1 $2 $3" = "scripts/ci.ts base head" ] || exit 2\nprintf "%s=false\\n" types simulation browser distribution deployment > "$GITHUB_OUTPUT"\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'gh'), '#!/bin/sh\n[ "$1" = api ] && [ "$2" = "repos/fixture/game/rules/branches/main" ] && [ "$3" = --paginate ] || exit 2\n[ "$API_RESULT" != error ] || exit 1\nprintf "%s\\n" "$API_RESULT"\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'node'), '#!/bin/sh\n[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2\nprintf "%s\\n" "$2"\n', { mode: 0o755 });
     const output = join(dir, 'outputs');
     const run = (command: string, env: Record<string, string>) => {
       writeFileSync(output, '');
@@ -173,17 +221,16 @@ test('PR selection requires an active merge queue; merge groups and pushes alway
         env: { PATH: `${dir}:${process.env.PATH}`, GITHUB_OUTPUT: output, ...env },
       });
       assert.equal(result.status, 0, result.stderr);
-      return readFileSync(output, 'utf8').trim();
+      return { output: readFileSync(output, 'utf8').trim(), stdout: result.stdout.trim() };
     };
-    const select = (queue: string) => run(selection.command, {
+    const mode = (queue: string) => run(verify.command, {
       QUEUE_ACTIVE: queue.replace(/^active=/, ''), BASE_SHA: 'base', HEAD_SHA: 'head',
-    });
-    const outputFor = (checks: typeof all) => Object.entries(checks).map(([name, enabled]) => `${name}=${enabled}`).join('\n');
+    }).stdout;
     for (const rules of ['merge_queue', '', 'error']) {
       const queue = run(lookup.command, { GH_REPO: 'fixture/game', API_RESULT: rules });
-      assert.equal(select(queue), outputFor(rules === 'merge_queue' ? none : all), rules || 'no rule');
+      assert.equal(mode(queue.output), rules === 'merge_queue' ? 'selected' : 'full', rules || 'no rule');
     }
-    assert.equal(select(''), outputFor(all), 'events that skip lookup run every check');
+    assert.equal(mode(''), 'full', 'events that skip lookup run every check');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -213,30 +260,54 @@ test('deployment gate waits for exact main CI and rejects failed, cancelled or m
   }
 });
 
-test('distribution gate compares the generated file with the committed standalone', { skip: process.platform === 'win32' }, () => {
+test('distribution gate compares the generated file with the committed standalone', () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-standalone-'));
-  const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
-  const command = workflow.match(/- name: Check committed standalone build\s*\n\s*run: ([^\n]+)/)?.[1];
-  assert.ok(command, 'distribution workflow must define its committed-build check');
-  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
-  const check = () => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], { cwd: dir, stdio: 'ignore' }).status;
+  const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   try {
     git('init', '-q', '-b', 'main');
-    git('config', 'user.name', 'CI fixture'); git('config', 'user.email', 'ci@example.invalid');
-    writeFileSync(join(dir, 'play.html'), 'standalone');
-    git('add', 'play.html'); git('commit', '-qm', 'fixture');
-    assert.equal(check(), 0, 'matching committed build passes');
-    writeFileSync(join(dir, 'play.html'), 'stale');
-    assert.notEqual(check(), 0, 'stale generated bytes fail');
-    writeFileSync(join(dir, 'play.html'), 'standalone');
+    git('config', 'user.name', 'CI fixture');
+    git('config', 'user.email', 'ci@example.invalid');
+    git('config', 'core.autocrlf', 'false');
+    // Exercise the runner and Git with no Vite build or browser required for this fixture.
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({
+      scripts: { build: 'node -e "0"', 'test:distribution': 'node -e "0" --' },
+    }));
+    for (const file of ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts']) {
+      mkdirSync(join(dir, file.split('/')[0]));
+      writeFileSync(join(dir, file), 'export {};');
+    }
+    git('add', '.'); git('commit', '-qm', 'fixture');
+    const base = git('rev-parse', 'HEAD');
+    writeFileSync(join(dir, 'play.html'), 'standalone\n');
+    git('add', 'play.html'); git('commit', '-qm', 'add standalone');
+    const head = git('rev-parse', 'HEAD');
+    const check = (...options: string[]) => spawnSync(process.execPath, [script, 'selected', base, head, ...options], { cwd: dir, encoding: 'utf8' });
+    const expectParityFailure = () => {
+      const result = check('--check-committed');
+      assert.equal(result.status, 1, result.stdout);
+      assert.match(result.stderr, /^Failed game checks: Standalone parity$/m);
+    };
+    const matching = check('--check-committed');
+    assert.equal(matching.status, 0, matching.stderr);
+    assert.match(matching.stdout, /Standalone parity: passed/);
+    writeFileSync(join(dir, 'play.html'), 'standalone\r\n');
+    git('add', 'play.html');
+    const local = check();
+    assert.equal(local.status, 0, local.stderr);
+    assert.match(local.stdout, /^Distribution: passed$/m);
+    expectParityFailure();
+    git('restore', '--source=HEAD', '--staged', '--worktree', 'play.html');
     git('rm', '-q', 'play.html'); git('commit', '-qm', 'delete standalone');
-    writeFileSync(join(dir, 'play.html'), 'standalone');
-    assert.notEqual(check(), 0, 'regenerated untracked file cannot replace a committed artifact');
-    rmSync(join(dir, 'play.html'));
-    writeFileSync(join(dir, 'target.html'), 'standalone');
-    symlinkSync('target.html', join(dir, 'play.html'));
-    git('add', 'play.html', 'target.html'); git('commit', '-qm', 'link standalone');
-    assert.notEqual(check(), 0, 'a committed link cannot replace the standalone HTML bytes');
+    writeFileSync(join(dir, 'play.html'), 'standalone\n');
+    expectParityFailure();
+    if (process.platform !== 'win32') {
+      rmSync(join(dir, 'play.html'));
+      writeFileSync(join(dir, 'target.html'), 'standalone\n');
+      symlinkSync('target.html', join(dir, 'play.html'));
+      git('add', 'play.html', 'target.html'); git('commit', '-qm', 'link standalone');
+      expectParityFailure();
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

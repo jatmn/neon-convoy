@@ -3,8 +3,8 @@ import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 export function checksFor(paths: string[]) {
-  const shared = paths.some(path => /^(package(-lock)?\.json|tsconfig[^/]*\.json|\.github\/workflows\/check\.yml)$/.test(path));
-  const app = paths.some(path => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.[cm]?[jt]s)$/.test(path));
+  const shared = paths.some(path => /^(package(-lock)?\.json|tsconfig[^/]*\.json|scripts\/verify\.ts|\.github\/workflows\/check\.yml)$/.test(path));
+  const app = paths.some(path => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.[cm]?[jt]s|\.gitattributes)$/.test(path));
   const playwrightConfig = paths.some(path => /^playwright\.config\.[cm]?[jt]s$/.test(path));
   return {
     types: shared || paths.some(path => path === '.oxlintrc.json' || /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)),
@@ -22,10 +22,15 @@ function changedPaths(base: string, head: string): string[] {
   return execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', start, head], { encoding: 'utf8' }).split('\0').filter(Boolean);
 }
 
+export function validationChecks(mode: string, base: string, head: string) {
+  if (mode === 'full') return { types: true, simulation: true, browser: true, distribution: true, deployment: true };
+  if (mode === 'selected' && base && head) return checksFor(changedPaths(base, head));
+  throw new Error('Expected full validation or selected validation with base and head SHAs');
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [base, head] = process.argv.slice(2);
-  if (!base || !head) throw new Error('Selected checks require a base SHA and head SHA');
-  const checks = checksFor(changedPaths(base, head));
+  const checks = validationChecks('selected', base, head);
   const output = Object.entries(checks).map(([name, run]) => `${name}=${run}`).join('\n') + '\n';
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, output);
   process.stdout.write(output);
