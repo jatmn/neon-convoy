@@ -14,36 +14,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  changes:
-    name: Select checks
-    runs-on: ubuntu-latest
+  checks:
+    name: Game checks
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
-    outputs:
-      types: ${{ steps.paths.outputs.types }}
-      simulation: ${{ steps.paths.outputs.simulation }}
-      browser: ${{ steps.paths.outputs.browser }}
-      distribution: ${{ steps.paths.outputs.distribution }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.18.0'
-          package-manager-cache: false
-      - name: Test CI routing (no dependencies required)
-        run: node --test tests/ci.test.ts
-      - name: Test owner-command authorization (no dependencies required)
-        run: node --test scripts/pullfrog-command-check.test.ts
+          cache: npm
       - name: Select affected surfaces
         id: paths
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.sha }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           # Narrow PR feedback only when an active queue will run the full suite.
@@ -55,124 +45,17 @@ jobs:
               echo "::warning::Could not confirm an active merge queue. Running the full suite."
             fi
           fi
-          node scripts/ci.ts "$BASE_SHA" "$HEAD_SHA" "$mode"
-      - name: Test uploader (no dependencies required)
-        if: steps.paths.outputs.deployment == 'true'
-        run: node --test tests/deploy.test.ts
-
-  types:
-    name: TypeScript
-    needs: changes
-    if: needs.changes.outputs.types == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22.18.0'
-          cache: npm
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
       - run: npm ci
-      - run: npm run typecheck
-
-  simulation:
-    name: Simulation
-    needs: changes
-    if: needs.changes.outputs.simulation == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22.18.0'
-          package-manager-cache: false
-      - run: node --test tests/engine.test.ts
-
-  browser:
-    name: Browser controls
-    needs: changes
-    if: needs.changes.outputs.browser == 'true'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22.18.0'
-          cache: npm
-      - run: npm ci
-      # Both projects use Playwright's default Chromium headless shell.
-      - name: Install pinned Chromium headless shell
-        run: npx --no-install playwright install --only-shell chromium
-      - run: npm run test:browser
+      - name: Run game checks
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+          MODE: ${{ steps.paths.outputs.mode }}
+        run: node scripts/verify.ts "$MODE" "$BASE_SHA" "$HEAD_SHA" --install-chromium
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: browser-test-results
           path: test-results/
           retention-days: 7
-
-  distribution:
-    name: Production and standalone
-    needs: changes
-    if: needs.changes.outputs.distribution == 'true'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22.18.0'
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - name: Check committed standalone build
-        run: git show HEAD:play.html | cmp - play.html
-      # Both projects use Playwright's default Chromium headless shell.
-      - name: Install pinned Chromium headless shell
-        run: npx --no-install playwright install --only-shell chromium
-      - run: npm run test:distribution
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
-        with:
-          name: distribution-test-results
-          path: test-results/
-          retention-days: 7
-
-  checks:
-    # Require this stable check in branch protection, not conditional jobs.
-    name: Game checks
-    needs: [changes, types, simulation, browser, distribution]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - name: Verify selected checks succeeded
-        env:
-          RESULTS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          results = json.loads(os.environ['RESULTS'])
-          errors = []
-          if results['changes']['result'] != 'success':
-              errors.append('Check selection or tooling tests failed')
-          for job in ('types', 'simulation', 'browser', 'distribution'):
-              selected = results['changes']['outputs'].get(job)
-              if selected not in ('true', 'false'):
-                  errors.append(f'{job}: missing or invalid selection')
-              elif results[job]['result'] != ('success' if selected == 'true' else 'skipped'):
-                  errors.append(f'{job}: {results[job]["result"]}')
-          for message in errors:
-              print(f'::error::{message}', flush=True)
-          raise SystemExit(bool(errors))
-          PY

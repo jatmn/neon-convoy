@@ -23,12 +23,16 @@ export function changedPaths(base: string, head: string, pullRequest: boolean): 
   return execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', start, head], { encoding: 'utf8' }).split('\0').filter(Boolean);
 }
 
+export function validationChecks(mode: string, base: string, head: string) {
+  if (mode === 'full') return checksFor(['package.json']);
+  if (mode === 'selected' && base && head) return checksFor(changedPaths(base, head, true));
+  throw new Error('Expected full validation or selected validation with base and head SHAs');
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [base, head, mode] = process.argv.slice(2);
-  if (!head || (mode !== 'full' && mode !== 'selected')) throw new Error('Expected base SHA, head SHA, and validation mode');
-  if (mode === 'selected' && !base) throw new Error('Selected checks require a base SHA');
-  const checks = mode === 'full' ? checksFor(['package.json']) : checksFor(changedPaths(base, head, true));
-  const output = Object.entries(checks).map(([name, run]) => `${name}=${run}`).join('\n') + '\n';
+  const output = Object.entries(validationChecks(mode, base, head))
+    .map(([name, run]) => `${name}=${run}`).join('\n') + '\n';
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, output);
   process.stdout.write(output);
 }
