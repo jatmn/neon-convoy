@@ -63,6 +63,33 @@ test('deploy, pause, speed, restart, and music controls update game state', asyn
   await expect(page.locator('#speed span')).toHaveText('1×');
 });
 
+test('play and pause controls stay stable between game state changes', async ({ page }) => {
+  await page.goto('/');
+  const control = page.locator('#pause');
+
+  async function expectStableControl(label: string) {
+    await expect(control).toHaveAccessibleName(label);
+    await expect(control).toHaveText(label);
+    const mutations = await control.evaluate(async button => {
+      let count = 0;
+      const observer = new MutationObserver(records => { count += records.length; });
+      observer.observe(button, { attributes: true, childList: true, characterData: true, subtree: true });
+      for (let i = 0; i < 4; i++) {
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      }
+      observer.disconnect();
+      return count;
+    });
+    expect(mutations).toBe(0);
+  }
+
+  await expectStableControl('Play');
+  await control.click();
+  await expectStableControl('Pause');
+  await control.click();
+  await expectStableControl('Play');
+});
+
 test('assigning a tool consumes its charge and terrain lab changes the route', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Deploy convoy' }).click();
