@@ -6,7 +6,7 @@ import { validationChecks } from './ci.ts';
 
 type CheckResult = 'passed' | 'failed' | 'blocked';
 
-const [mode = 'full', base, head, install] = process.argv.slice(2);
+const [mode = 'full', base, head, ...options] = process.argv.slice(2);
 const checks = validationChecks(mode, base, head);
 const results = new Map<string, Promise<CheckResult>>();
 const exec = promisify(execFile);
@@ -50,26 +50,36 @@ const unitFiles = ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts']
 if (checks.simulation) unitFiles.push('tests/engine.test.ts');
 if (checks.deployment) unitFiles.push('tests/deploy.test.ts');
 run('Unit tests', 'node', ['--test', ...unitFiles]);
-if (checks.types) run('TypeScript', 'npm', ['run', 'typecheck']);
-
-const chromium = install === '--install-chromium' && (checks.browser || checks.distribution)
-  ? run('Chromium setup', 'npx', ['--no-install', 'playwright', 'install', '--only-shell', 'chromium'])
+const needsChromium = checks.browser || checks.distribution;
+const dependencies = options.includes('--install-dependencies') && (checks.types || needsChromium)
+  ? run('Dependency install', 'npm', ['ci'])
   : Promise.resolve<CheckResult>('passed');
+
+if (checks.types) {
+  run('Test lint', 'npm', ['run', 'lint'], dependencies);
+  run('TypeScript', 'npm', ['run', 'typecheck'], dependencies);
+}
+
+const chromium = options.includes('--install-chromium') && needsChromium
+  ? run('Chromium setup', 'npx', ['--no-install', 'playwright', 'install', '--only-shell', 'chromium'], dependencies)
+  : dependencies;
 
 if (checks.browser) {
   run('Browser controls', 'npm', ['run', 'test:browser', '--', '--output=test-results/browser'], chromium);
 }
 
 if (checks.distribution) {
-  const build = run('Production build', 'npm', ['run', 'build']);
-  check('Standalone parity', async () => {
-    const generated = await readFile('play.html');
-    const { stdout: committed } = await exec('git', ['cat-file', 'blob', 'HEAD:play.html'], {
-      encoding: 'buffer',
-      maxBuffer: Math.max(1024 * 1024, generated.length + 1),
-    });
-    if (!generated.equals(committed)) throw new Error('generated play.html differs from HEAD:play.html');
-  }, build);
+  const build = run('Production build', 'npm', ['run', 'build'], dependencies);
+  if (options.includes('--check-committed')) {
+    check('Standalone parity', async () => {
+      const generated = await readFile('play.html');
+      const { stdout: committed } = await exec('git', ['cat-file', 'blob', 'HEAD:play.html'], {
+        encoding: 'buffer',
+        maxBuffer: Math.max(1024 * 1024, generated.length + 1),
+      });
+      if (!generated.equals(committed)) throw new Error('generated play.html differs from HEAD:play.html');
+    }, build);
+  }
   run('Distribution', 'npm', ['run', 'test:distribution', '--', '--output=test-results/distribution'], build, chromium);
 }
 

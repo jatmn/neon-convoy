@@ -42,7 +42,6 @@ jobs:
         with:
           node-version: '22.18.0'
           cache: npm
-      - run: npm ci
       - name: Run game checks
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -53,7 +52,7 @@ jobs:
           if [[ "$QUEUE_ACTIVE" == true ]]; then
             mode=selected
           fi
-          node scripts/verify.ts "$mode" "$BASE_SHA" "$HEAD_SHA" --install-chromium
+          node scripts/verify.ts "$mode" "$BASE_SHA" "$HEAD_SHA" --install-dependencies --install-chromium --check-committed
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:

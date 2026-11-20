@@ -130,9 +130,9 @@ test('required game checks fail and report all unsuccessful commands', { skip: p
     const result = run();
     assert.equal(result.status, 1, result.stderr);
     assert.match(result.stderr, /^Failed game checks: Unit tests, TypeScript, Production build$/m);
-    assert.match(result.stderr, /^Blocked game checks: Standalone parity, Distribution$/m);
+    assert.match(result.stderr, /^Blocked game checks: Distribution$/m);
     assert.match(result.stdout, /Browser controls: passed/);
-    const install = run('full', '', '', '--install-chromium');
+    const install = run('full', '', '', '--install-chromium', '--check-committed');
     assert.equal(install.status, 1, install.stderr);
     assert.match(install.stderr, /^Failed game checks: Unit tests, TypeScript, Chromium setup, Production build$/m);
     assert.match(install.stderr, /^Blocked game checks: Browser controls, Standalone parity, Distribution$/m);
@@ -142,9 +142,62 @@ test('required game checks fail and report all unsuccessful commands', { skip: p
   }
 });
 
+test('the CI runner installs packages once, only when a selected check needs them', { skip: process.platform === 'win32' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'neon-dependencies-'));
+  const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  const run = (status: string, ...args: string[]) => spawnSync(process.execPath, [
+    script, ...args, '--install-dependencies', '--install-chromium', '--check-committed',
+  ], {
+    cwd: dir, encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, INSTALL_STATUS: status },
+  });
+  try {
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.name', 'CI fixture');
+    git('config', 'user.email', 'ci@example.invalid');
+    git('commit', '-qm', 'root', '--allow-empty');
+    writeFileSync(join(dir, 'README.md'), 'docs');
+    git('add', 'README.md'); git('commit', '-qm', 'docs');
+    writeFileSync(join(dir, 'fixture.ts'), 'export {};');
+    git('add', 'fixture.ts'); git('commit', '-qm', 'types');
+    writeFileSync(join(dir, 'node'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'npm'), [
+      '#!/bin/sh',
+      'case "$*" in',
+      '  ci) echo install >> installs; exit "$INSTALL_STATUS" ;;',
+      '  "run typecheck"|"run lint") test -f installs ;;',
+      '  *) exit 7 ;;',
+      'esac',
+    ].join('\n'), { mode: 0o755 });
+    writeFileSync(join(dir, 'npx'), '#!/bin/sh\nexit 7\n', { mode: 0o755 });
+
+    const docs = run('1', 'selected', 'HEAD~2', 'HEAD~1');
+    assert.equal(docs.status, 0, docs.stderr);
+    assert.match(docs.stdout, /^Unit tests: passed$/m);
+    assert.throws(() => readFileSync(join(dir, 'installs')), { code: 'ENOENT' });
+
+    const types = run('0', 'selected', 'HEAD~1', 'HEAD');
+    assert.equal(types.status, 0, types.stderr);
+    assert.match(types.stdout, /^TypeScript: passed$/m);
+    assert.match(types.stdout, /^Test lint: passed$/m);
+    assert.equal(readFileSync(join(dir, 'installs'), 'utf8'), 'install\n');
+
+    const failed = run('1', 'full', '', '');
+    assert.equal(failed.status, 1, failed.stderr);
+    assert.match(failed.stdout, /^Unit tests: passed$/m);
+    assert.match(failed.stderr, /^Failed game checks: Dependency install$/m);
+    assert.match(failed.stderr, /^Blocked game checks: Test lint, TypeScript, Chromium setup, Browser controls, Production build, Standalone parity, Distribution$/m);
+    assert.equal(readFileSync(join(dir, 'installs'), 'utf8'), 'install\ninstall\n');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('PR selection requires an active merge queue; merge groups and pushes always run every check', { skip: process.platform === 'win32' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-queue-'));
   const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
+  assert.doesNotMatch(workflow, /^ +-[^\n]*run: npm ci\s*$/m);
   assert.match(workflow, /^  merge_group:\n    types: \[checks_requested\]$/m);
   assert.match(workflow, /id: queue\n        if: github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == 'main'/);
   const step = (name: string) => {
@@ -159,7 +212,7 @@ test('PR selection requires an active merge queue; merge groups and pushes alway
   assert.doesNotMatch(verify.configuration, /GH_TOKEN|github\.token/);
   try {
     writeFileSync(join(dir, 'gh'), '#!/bin/sh\n[ "$1" = api ] && [ "$2" = "repos/fixture/game/rules/branches/main" ] && [ "$3" = --paginate ] || exit 2\n[ "$API_RESULT" != error ] || exit 1\nprintf "%s\\n" "$API_RESULT"\n', { mode: 0o755 });
-    writeFileSync(join(dir, 'node'), '#!/bin/sh\n[ "$1 $3 $4 $5" = "scripts/verify.ts base head --install-chromium" ] || exit 2\nprintf "%s\\n" "$2"\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'node'), '#!/bin/sh\n[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2\nprintf "%s\\n" "$2"\n', { mode: 0o755 });
     const output = join(dir, 'outputs');
     const run = (command: string, env: Record<string, string>) => {
       writeFileSync(output, '');
@@ -229,18 +282,22 @@ test('distribution gate compares the generated file with the committed standalon
     writeFileSync(join(dir, 'play.html'), 'standalone\n');
     git('add', 'play.html'); git('commit', '-qm', 'add standalone');
     const head = git('rev-parse', 'HEAD');
-    const check = () => spawnSync(process.execPath, [script, 'selected', base, head], { cwd: dir, encoding: 'utf8' });
+    const check = (...options: string[]) => spawnSync(process.execPath, [script, 'selected', base, head, ...options], { cwd: dir, encoding: 'utf8' });
     const expectParityFailure = () => {
-      const result = check();
+      const result = check('--check-committed');
       assert.equal(result.status, 1, result.stdout);
       assert.match(result.stderr, /^Failed game checks: Standalone parity$/m);
     };
-    const matching = check();
+    const matching = check('--check-committed');
     assert.equal(matching.status, 0, matching.stderr);
     assert.match(matching.stdout, /Standalone parity: passed/);
     writeFileSync(join(dir, 'play.html'), 'standalone\r\n');
+    git('add', 'play.html');
+    const local = check();
+    assert.equal(local.status, 0, local.stderr);
+    assert.match(local.stdout, /^Distribution: passed$/m);
     expectParityFailure();
-    writeFileSync(join(dir, 'play.html'), 'standalone\n');
+    git('restore', '--source=HEAD', '--staged', '--worktree', 'play.html');
     git('rm', '-q', 'play.html'); git('commit', '-qm', 'delete standalone');
     writeFileSync(join(dir, 'play.html'), 'standalone\n');
     expectParityFailure();

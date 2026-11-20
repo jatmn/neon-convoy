@@ -91,7 +91,7 @@ npx playwright install chromium
 npm run check
 ```
 
-Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `npm run check` runs `npm run lint` (Landmines test lint), `npm run typecheck`, `npm test`, `npm run build`, `npm run test:browser`, and `npm run test:distribution` in order.
+Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `npm run check` runs `npm run lint` (Landmines test lint), `npm run typecheck`, `npm test`, `npm run build`, `npm run test:browser`, and `npm run test:distribution`.
 
 TypeScript is checked by `tsc`; Vite builds the browser code and Node runs the scripts and simulation tests using native type stripping. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
 
@@ -101,7 +101,7 @@ If Chromium is already installed outside Playwright's expected location, set `PL
 
 GitHub Actions runs on pull requests (including forks), merge groups, and pushes to `main`. It uses read-only permissions and cancels superseded runs. Merge groups and main pushes run every check. Pull requests also run every check unless an active merge queue ruleset applies to `main`. When the queue is active, PR feedback uses the changed inputs below.
 
-The TypeScript job also runs the Landmines test lint rules.
+In the table, Types includes TypeScript and Landmines test lint.
 
 | Changed surface | Checks |
 | --- | --- |
@@ -120,7 +120,7 @@ The TypeScript job also runs the Landmines test lint rules.
 | Oxlint configuration or otherwise unrouted JS/TS files | Types and test lint |
 | Package manifests, TypeScript config, or check workflow | All checks |
 
-Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job installs the pinned Playwright Chromium shell once and retains browser failure artifacts for seven days. It runs independent checks in parallel, rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
+Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job shares one dependency install when a selected check needs packages. Browser and distribution checks share one pinned Playwright Chromium installation, and browser failure artifacts are retained for seven days. The job runs independent checks in parallel. For distribution it rebuilds and checks that committed `play.html` is current. Run `npm run build` and commit the result whenever build inputs change.
 
 Require the stable **Game checks** status for `main`. In a public organization repository, add the merge queue to the same active ruleset with no bypass actors. The queue validates the combined commit against the latest base before it can merge. An unavailable rules lookup results in full PR validation. GitHub-managed CodeQL and third-party integrations have their own scheduling.
 

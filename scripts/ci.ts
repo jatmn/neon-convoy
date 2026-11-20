@@ -30,8 +30,8 @@ export function validationChecks(mode: string, base: string, head: string) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [base, head] = process.argv.slice(2);
-  const output = Object.entries(validationChecks('selected', base, head))
-    .map(([name, run]) => `${name}=${run}`).join('\n') + '\n';
+  const checks = validationChecks('selected', base, head);
+  const output = Object.entries(checks).map(([name, run]) => `${name}=${run}`).join('\n') + '\n';
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, output);
   process.stdout.write(output);
 }
