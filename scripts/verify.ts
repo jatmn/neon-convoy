@@ -21,7 +21,7 @@ function check(name: string, start: () => Promise<void>, ...prerequisites: Promi
       console.log(`${name}: passed`);
       return 'passed';
     } catch (error) {
-      console.error(`${name}: failed (${error instanceof Error ? error.message : error})`);
+      console.error(`${name}: failed (${error instanceof Error ? error.message : String(error)})`);
       return 'failed';
     }
   });
@@ -44,15 +44,18 @@ function run(name: string, command: string, args: string[], ...prerequisites: Pr
 const unitFiles = ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts'];
 if (checks.simulation) unitFiles.push('tests/engine.test.ts');
 if (checks.deployment) unitFiles.push('tests/deploy.test.ts');
-run('Unit tests', 'bun', ['test', '--isolate', '--randomize', ...unitFiles]);
+void run('Unit tests', 'bun', ['test', '--isolate', '--randomize', ...unitFiles]);
 const needsChromium = checks.browser || checks.distribution;
 const dependencies = options.includes('--install-dependencies') && (checks.types || needsChromium)
   ? run('Dependency install', 'bun', ['install', '--frozen-lockfile'])
   : Promise.resolve<CheckResult>('passed');
 
 if (checks.types) {
-  run('Test lint', 'bun', ['run', 'lint'], dependencies);
-  run('TypeScript', 'bun', ['check'], dependencies);
+  void run('Test lint', 'bun', ['run', 'lint'], dependencies);
+  void run('Native lint', 'bun', [
+    'lint', '--no-script', '--config', '.oxlintrc.native.json', '--type-aware', '--all', '--max-warnings', '0',
+  ], dependencies);
+  void run('TypeScript', 'bun', ['check'], dependencies);
 }
 
 const chromium = options.includes('--install-chromium') && needsChromium
@@ -60,13 +63,13 @@ const chromium = options.includes('--install-chromium') && needsChromium
   : dependencies;
 
 if (checks.browser) {
-  run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], chromium);
+  void run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], chromium);
 }
 
 if (checks.distribution) {
   const build = run('Production build', 'bun', ['run', 'build'], dependencies);
   if (options.includes('--check-committed')) {
-    check('Standalone parity', async () => {
+    void check('Standalone parity', async () => {
       const generated = await readFile('play.html');
       const { stdout: committed } = await exec('git', ['cat-file', 'blob', 'HEAD:play.html'], {
         encoding: 'buffer',
@@ -75,7 +78,7 @@ if (checks.distribution) {
       if (!generated.equals(committed)) throw new Error('generated play.html differs from HEAD:play.html');
     }, build);
   }
-  run('Distribution', 'bun', ['run', 'test:distribution', '--output=test-results/distribution'], build, chromium);
+  void run('Distribution', 'bun', ['run', 'test:distribution', '--output=test-results/distribution'], build, chromium);
 }
 
 const completed = await Promise.all(Array.from(results, async ([name, status]) => ({ name, status: await status })));

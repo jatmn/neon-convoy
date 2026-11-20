@@ -83,7 +83,7 @@ export class AudioEngine {
           seed = (Math.imul(seed, 1664525) + 1013904223) | 0;
           data[i] = (seed / 2147483648) * .45;
         }
-      } catch (_) {
+      } catch {
         this.context = null;
         return false;
       }
@@ -96,7 +96,7 @@ export class AudioEngine {
         this.timer = setInterval(() => this.schedule(), 25);
       }
       return true;
-    } catch (_) {
+    } catch {
       return false;
     }
   }
@@ -135,7 +135,7 @@ export class AudioEngine {
 
   schedule() {
     const ctx = this.context;
-    if (!ctx || ctx.state !== 'running' || this.paused || this.destroyed) return;
+    if (ctx?.state !== 'running' || this.paused || this.destroyed) return;
     const song = SONGS[this.level];
     const duration = 60 / song.bpm / 4;
     if (this.nextTime < ctx.currentTime - duration) this.nextTime = ctx.currentTime + .025;
@@ -189,7 +189,6 @@ export class AudioEngine {
   }
 
   kick(start: number, gain = .48) {
-    const ctx = this.context;
     const osc = this.tone('sine', 142, start, .20, gain, this.music, { release: .02 });
     osc.frequency.exponentialRampToValueAtTime(46, start + .18);
   }
@@ -239,7 +238,7 @@ export class AudioEngine {
 
   playEffect(name: string) {
     const ctx = this.context;
-    if (!ctx || ctx.state !== 'running' || this.muted || this.destroyed) return;
+    if (ctx?.state !== 'running' || this.muted || this.destroyed) return;
     const now = ctx.currentTime + .005;
     const effect = String(name || '').toLowerCase();
     if (effect.includes('laser')) {

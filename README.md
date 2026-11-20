@@ -99,7 +99,9 @@ bun --bun playwright install --only-shell chromium
 bun run verify
 ```
 
-Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs `bun run lint` (Landmines test lint), `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution`.
+Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs native type-aware Bun lint, `bun run lint` (Landmines test lint), `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution`.
+
+Use `bun lint --no-script --config .oxlintrc.native.json --type-aware --all --max-warnings 0` to run the native correctness, suspicious code, performance, and nursery rules. Deployment and the browser test for stable Play/Pause controls intentionally sequence operations. The configuration preserves CSS imports, typed DOM access, and defensive conversions.
 
 Bun uses its TypeScript 7 checker and runs the scripts and isolated, randomized unit tests. Vite builds the browser code. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
 
@@ -109,7 +111,7 @@ If Chromium is already installed outside Playwright's expected location, set `PL
 
 GitHub Actions runs on pull requests (including forks), merge groups, and pushes to `main`. It uses read-only permissions and cancels superseded runs. Merge groups and main pushes run every check. Pull requests also run every check unless an active merge queue ruleset applies to `main`. When the queue is active, PR feedback uses the changed inputs below.
 
-In the table, Types includes TypeScript and Landmines test lint.
+In the table, Types includes TypeScript, Landmines test lint, and native type-aware Bun lint.
 
 | Changed surface | Checks |
 | --- | --- |
@@ -124,8 +126,8 @@ In the table, Types includes TypeScript and Landmines test lint.
 | Shared Playwright config | Types, browser controls, distribution |
 | Uploader code/tests | Types and uploader regression tests |
 | Deployment workflow | Uploader regression tests |
-| Routing code/tests | Routing, types, and test lint |
-| Oxlint configuration or otherwise unrouted JS/TS files | Types and test lint |
+| Routing code/tests | Routing and types |
+| Oxlint configuration or otherwise unrouted JS/TS files | Types |
 | Package manifests, Bun install/configuration, TypeScript config, or check workflow | All checks |
 
 Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job shares one dependency install when a selected check needs packages. Browser and distribution checks share one pinned Playwright Chromium headless shell installation, and browser failure artifacts are retained for seven days. The job runs independent checks in parallel. For distribution it rebuilds and checks that committed `play.html` is current. Run `bun run build` and commit the result whenever build inputs change.
