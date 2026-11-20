@@ -1,5 +1,11 @@
 # Release validation
 
+Install Playwright's pinned Chromium and run `npm run check` to validate a release.
+The script starts with `npm run lint` for the Landmines testing rules. See the
+[README validation commands](../README.md#validate) for setup and the full list.
+
+## TypeScript migration results
+
 TypeScript migration validated on September 29, 2026 with Node 22.23.1 and the Chromium revision installed by pinned Playwright 1.63.0.
 
 - `npm run typecheck`: strict checking passed for source, test, script, and configuration files.
@@ -8,7 +14,7 @@ TypeScript migration validated on September 29, 2026 with Node 22.23.1 and the C
 - `npm run test:browser`: 10 tests passed across desktop Chromium and Pixel 7 emulation.
 - `npm run test:distribution`: four tests passed across the same profiles, opening both the production site and standalone `file://` build, deploying the convoy, advancing its timer, pausing, rendering Canvas, and checking for page errors with external network requests blocked.
 
-`npm run check` runs all these gates. Browser integration covers campaign navigation, play/pause, restart, speed, tool assignment, terrain editing, hints/settings dialogs, music state, a real simulation-driven victory, score/progress persistence, and advancing to the next sector. No simulation assertions were removed during migration.
+Browser integration covers campaign navigation, play/pause, restart, speed, tool assignment, terrain editing, hints/settings dialogs, music state, a real simulation-driven victory, score/progress persistence, and advancing to the next sector. No simulation assertions were removed during migration.
 
 CI uses Node 22.18 (the supported minimum), installs Playwright's pinned Chromium, and checks that rebuilding does not change committed `play.html`. The [README](../README.md#continuous-integration) describes file-based job selection and the aggregate check to require in branch protection.
 

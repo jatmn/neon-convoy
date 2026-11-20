@@ -96,9 +96,10 @@ npx playwright install chromium
 npm run check
 ```
 
-This checks types, simulation, the production build, browser controls, and both
-site and standalone distribution paths. When build inputs change, run
-`npm run build` and commit the regenerated `play.html`; do not hand-edit it.
+This runs Landmines test lint, type checking, simulation tests, the production
+build, browser controls, and both site and standalone distribution tests.
+When build inputs change, run `npm run build` and commit the regenerated
+`play.html`; do not hand-edit it.
 
 For documentation-only changes, check links and formatting and run
 `git diff --check`. CI selects checks by changed surface; the stable

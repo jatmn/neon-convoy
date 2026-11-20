@@ -4,12 +4,13 @@ import { pathToFileURL } from 'node:url';
 
 export function checksFor(paths: string[]) {
   const shared = paths.some(path => /^(package(-lock)?\.json|tsconfig[^/]*\.json|\.github\/workflows\/check\.yml)$/.test(path));
-  const app = paths.some(path => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.ts)$/.test(path));
+  const app = paths.some(path => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.[cm]?[jt]s)$/.test(path));
+  const playwrightConfig = paths.some(path => /^playwright\.config\.[cm]?[jt]s$/.test(path));
   return {
     types: shared || paths.some(path => path === '.oxlintrc.json' || /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)),
     simulation: shared || paths.some(path => /^(src\/(engine|levels|types)\.ts|tests\/engine\.test\.ts)$/.test(path)),
-    browser: shared || app || paths.some(path => /^(tests\/browser\.spec\.ts|playwright\.config\.ts)$/.test(path)),
-    distribution: shared || app || paths.some(path => /^(scripts\/standalone\.ts|playwright\.distribution\.config\.ts|LICENSE|play\.html|tests\/distribution\.spec\.ts|playwright\.config\.ts)$/.test(path)),
+    browser: shared || app || playwrightConfig || paths.some(path => path === 'tests/browser.spec.ts'),
+    distribution: shared || app || playwrightConfig || paths.some(path => /^(scripts\/standalone\.ts|playwright\.distribution\.config\.ts|LICENSE|play\.html|tests\/distribution\.spec\.ts)$/.test(path)),
     deployment: shared || paths.some(path => /^(scripts\/deploy\.ts|tests\/deploy\.test\.ts|\.github\/workflows\/deploy\.yml)$/.test(path)),
   };
 }

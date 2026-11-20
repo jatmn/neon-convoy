@@ -35,11 +35,20 @@ test('simulation changes exercise their browser and build consumers', () => {
 });
 
 test('UI and assets skip simulation but exercise browser and distribution', () => {
-  for (const path of ['src/main.ts', 'src/audio.ts', 'src/renderer.ts', 'vite.config.ts']) {
+  for (const path of ['src/main.ts', 'src/audio.ts', 'src/renderer.ts']) {
     assert.deepEqual(checksFor([path]), { ...game, simulation: false }, path);
   }
   for (const path of ['src/style.css', 'index.html', 'favicon.svg', 'public/texture.png']) {
     assert.deepEqual(checksFor([path]), { ...none, browser: true, distribution: true }, path);
+  }
+});
+
+test('auto-discovered Vite and shared Playwright configs exercise browser and distribution', () => {
+  for (const name of ['vite', 'playwright']) {
+    for (const extension of ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs']) {
+      const path = `${name}.config.${extension}`;
+      assert.deepEqual(checksFor([path]), { ...game, simulation: false }, path);
+    }
   }
 });
 
@@ -49,7 +58,6 @@ test('test and packaging changes only run their related checks', () => {
     assert.deepEqual(checksFor([path]), { ...none, types: true, distribution: true }, path);
   }
   for (const path of ['LICENSE', 'play.html']) assert.deepEqual(checksFor([path]), { ...none, distribution: true });
-  assert.deepEqual(checksFor(['playwright.config.ts']), { ...game, simulation: false });
   assert.deepEqual(checksFor(['tests/engine.test.ts', 'play.html']), { ...none, types: true, simulation: true, distribution: true });
 });
 
