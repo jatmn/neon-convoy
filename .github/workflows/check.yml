@@ -20,18 +20,23 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 1
     steps:
-      - name: Read job start
-        id: clock
+      - name: Start job timing lookup
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
-            --jq '.jobs[] | select(.name == "Game checks") | .started_at')
-          test -n "$started"
-          echo "started_ms=$(date -u -d "$started" +%s%3N)" >> "$GITHUB_OUTPUT"
+          clock="$RUNNER_TEMP/game-check-start"
+          (
+            set -euo pipefail
+            started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+              --jq '.jobs[] | select(.name == "Game checks") | .started_at')
+            test -n "$started"
+            date -u -d "$started" +%s%3N > "$clock.partial"
+            mv "$clock.partial" "$clock"
+          ) </dev/null >"$clock.log" 2>&1 &
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          # The PR merge commit already has its exact base as a parent.
+          fetch-depth: 2
           filter: blob:none
           persist-credentials: false
       - name: Install pinned Bun
@@ -79,8 +84,14 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
           MODE: ${{ steps.paths.outputs.mode }}
-          GAME_CHECK_STARTED_MS: ${{ steps.clock.outputs.started_ms }}
         run: |
+          clock="$RUNNER_TEMP/game-check-start"
+          if ! read -r GAME_CHECK_STARTED_MS < "$clock"; then
+            cat "$clock.log"
+            echo "::error::GitHub job start time is unavailable."
+            exit 1
+          fi
+          export GAME_CHECK_STARTED_MS
           # Reserve two seconds of the 35 s job budget for runner finalization.
           remaining=$(( 33000 - ($(date +%s%3N) - GAME_CHECK_STARTED_MS) ))
           if (( remaining <= 0 )); then
@@ -97,10 +108,8 @@ jobs:
           retention-days: 7
       - name: Enforce elapsed job budget
         if: always()
-        env:
-          GAME_CHECK_STARTED_MS: ${{ steps.clock.outputs.started_ms }}
         run: |
-          test -n "$GAME_CHECK_STARTED_MS"
+          read -r GAME_CHECK_STARTED_MS < "$RUNNER_TEMP/game-check-start"
           elapsed=$(( $(date +%s%3N) - GAME_CHECK_STARTED_MS ))
           echo "Game checks runner elapsed: ${elapsed} ms (33 s plus finalization)" >> "$GITHUB_STEP_SUMMARY"
           if (( elapsed >= 33000 )); then
