@@ -1,5 +1,8 @@
+import { mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { validationChecks } from './ci.ts';
+import { recordTestInventory } from './test-inventory.ts';
 
 const [mode = 'full', base, head, install] = process.argv.slice(2);
 const checks = validationChecks(mode, base, head);
@@ -33,10 +36,25 @@ function run(name: string, command: string, ...args: string[]): Promise<boolean>
   });
 }
 
-const unitFiles = ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts'];
-if (checks.simulation) unitFiles.push('tests/engine.test.ts');
-if (checks.deployment) unitFiles.push('tests/deploy.test.ts');
-results.set('Unit tests', run('Unit tests', 'bun', 'test', '--isolate', '--randomize', ...unitFiles));
+const full = Object.values(checks).every(Boolean);
+const directory = 'test-results/timings';
+const unitArgs = ['test', '--isolate', '--randomize'];
+if (full) {
+  rmSync(directory, { recursive: true, force: true });
+  mkdirSync(directory, { recursive: true });
+  process.env.NEON_TEST_TIMINGS_DIRECTORY = directory;
+  unitArgs.push(
+    `--timings=${join(directory, 'unit.json')}`,
+    '--update-timings',
+    '--reporter=junit',
+    `--reporter-outfile=${join(directory, 'unit-junit.xml')}`,
+  );
+} else {
+  unitArgs.push('tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts');
+  if (checks.simulation) unitArgs.push('tests/engine.test.ts');
+  if (checks.deployment) unitArgs.push('tests/deploy.test.ts');
+}
+results.set('Unit tests', run('Unit tests', 'bun', ...unitArgs));
 results.set('Format', run('Format', 'bun', 'fmt', '--check'));
 results.set('Lint', run('Lint', 'bun', 'lint', '--type-aware', '--all', '--max-warnings', '0'));
 if (checks.types) results.set('TypeScript', run('TypeScript', 'bun', 'check'));
@@ -98,3 +116,5 @@ if (failed.length) {
   console.error(`Failed game checks: ${failed.join(', ')}`);
   process.exitCode = 1;
 }
+
+if (!failed.length && full) recordTestInventory(directory);

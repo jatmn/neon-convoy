@@ -1,7 +1,15 @@
+import { resolve } from 'node:path';
+import type { PlaywrightTestConfig } from '@playwright/test';
 import { defineConfig, devices } from '@playwright/test';
+
+export function timingReporter(suite: string): PlaywrightTestConfig['reporter'] {
+  const directory = process.env.NEON_TEST_TIMINGS_DIRECTORY;
+  return directory ? [['line'], ['json', { outputFile: resolve(directory, `${suite}.json`) }]] : undefined;
+}
 
 export default defineConfig({
   testDir: './tests',
+  reporter: timingReporter('browser'),
   testMatch: 'browser.spec.ts',
   timeout: 30_000,
   forbidOnly: !!process.env.CI,
