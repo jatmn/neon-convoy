@@ -3,8 +3,8 @@ import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 export function checksFor(paths: string[]) {
-  const shared = paths.some(path => /^(package(-lock)?\.json|tsconfig[^/]*\.json|\.github\/workflows\/check\.yml)$/.test(path));
-  const app = paths.some(path => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.[cm]?[jt]s)$/.test(path));
+  const shared = paths.some(path => /^(package(-lock)?\.json|tsconfig[^/]*\.json|scripts\/verify\.ts|\.github\/workflows\/check\.yml)$/.test(path));
+  const app = paths.some(path => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.[cm]?[jt]s|\.gitattributes)$/.test(path));
   const playwrightConfig = paths.some(path => /^playwright\.config\.[cm]?[jt]s$/.test(path));
   return {
     types: shared || paths.some(path => path === '.oxlintrc.json' || /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)),
