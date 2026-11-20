@@ -77,12 +77,25 @@ if (process.env.GAME_CHECK_STARTED_MS) {
   );
 }
 
+function browserDeadline() {
+  const deadline = process.env.NEON_PUSH_DEADLINE_MS;
+  return deadline ? [`--global-timeout=${Math.max(1, Number(deadline) - Date.now())}`] : [];
+}
+
 if (checks.browser) {
   results.set(
     'Browser controls',
     chromium.then(
       (ready) =>
-        ready && run('Browser controls', 'bun', 'run', 'test:browser', '--output=test-results/browser'),
+        ready &&
+        run(
+          'Browser controls',
+          'bun',
+          'run',
+          'test:browser',
+          '--output=test-results/browser',
+          ...browserDeadline(),
+        ),
     ),
   );
 }
@@ -104,7 +117,14 @@ if (checks.distribution) {
       ([built, browserReady]) =>
         built &&
         browserReady &&
-        run('Distribution', 'bun', 'run', 'test:distribution', '--output=test-results/distribution'),
+        run(
+          'Distribution',
+          'bun',
+          'run',
+          'test:distribution',
+          '--output=test-results/distribution',
+          ...browserDeadline(),
+        ),
     ),
   );
 }

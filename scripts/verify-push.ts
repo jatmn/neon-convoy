@@ -2,6 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
+// Leave time for Playwright to close its web servers before hk's hard deadline.
+const options = {
+  stdio: 'inherit' as const,
+  env: { ...process.env, NEON_PUSH_DEADLINE_MS: String(Date.now() + 7_000) },
+};
 const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' });
 const input = readFileSync(0, 'utf8').trim();
@@ -12,7 +17,7 @@ for (const tip of new Set(tips)) {
     throw new Error('Pre-push did not receive a Git commit SHA');
   if (/^0+$/.test(tip)) continue;
   if (tip === head && !dirty) {
-    execFileSync('bun', ['run', 'verify'], { stdio: 'inherit' });
+    execFileSync('bun', ['run', 'verify'], options);
     continue;
   }
 
@@ -23,7 +28,7 @@ for (const tip of new Set(tips)) {
     });
     execFileSync('git', ['checkout', '--quiet', '--detach', tip], { cwd: checkout, stdio: 'inherit' });
     execFileSync('bun', ['install', '--frozen-lockfile'], { cwd: checkout, stdio: 'inherit' });
-    execFileSync('bun', ['run', 'verify'], { cwd: checkout, stdio: 'inherit' });
+    execFileSync('bun', ['run', 'verify'], { ...options, cwd: checkout });
   } finally {
     rmSync(checkout, { recursive: true, force: true });
   }
