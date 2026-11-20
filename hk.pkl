@@ -13,12 +13,12 @@ hooks {
       }
       ["lint"] {
         depends = "format"
-        check = "bun lint --staged --type-aware --all --max-warnings 0"
+        check = "bun lint --staged --no-script --config .oxlintrc.native.json --type-aware --all --max-warnings 0"
       }
     }
   }
   ["pre-push"] {
-    timeout = "9s"
+    timeout = "20s"
     env { ["CI"] = "true" }
     steps {
       ["verify"] {
