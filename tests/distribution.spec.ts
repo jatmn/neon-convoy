@@ -27,7 +27,12 @@ for (const entry of ['dist/index.html', 'play.html']) {
     await page.getByRole('button', { name: 'Deploy convoy' }).click();
     await expect(page.locator('#feed-status')).toHaveText('CONVOY IN TRANSIT');
     await expect(page.locator('#timer')).not.toHaveText(timer!);
-    await page.getByRole('button', { name: 'Pause' }).click();
+    // Hold the press while a frame renders, then release on the same button.
+    const pause = page.getByRole('button', { name: 'Pause' }).locator('span');
+    await pause.hover();
+    await page.mouse.down();
+    await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
+    await page.mouse.up();
     await expect(page.locator('#pause-label')).toBeVisible();
     const lit = await page.locator('#game').evaluate((canvas: HTMLCanvasElement) => {
       const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;

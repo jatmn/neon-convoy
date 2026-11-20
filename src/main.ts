@@ -235,8 +235,13 @@ function updateHUD() {
   $('#start-banner').hidden = game.status !== 'ready' || editing;
   $('#pause-label').hidden = !game.paused || game.status !== 'running' || editing;
   const running = game.status === 'running' && !game.paused;
-  $('#pause').innerHTML = `${icon(running ? 'pause' : 'play')}<span>${running ? 'Pause' : 'Play'}</span>`;
-  $('#pause').setAttribute('aria-label', running ? 'Pause' : 'Play');
+  const pauseButton = $('#pause');
+  const pauseAction = running ? 'Pause' : 'Play';
+  // Keep the pointer target in place between press and release.
+  if (pauseButton.getAttribute('aria-label') !== pauseAction) {
+    pauseButton.innerHTML = `${icon(running ? 'pause' : 'play')}<span>${pauseAction}</span>`;
+    pauseButton.setAttribute('aria-label', pauseAction);
+  }
   $('#feed-status').textContent = editing
     ? 'TERRAIN LAB / EDITING'
     : game.status === 'ready'
