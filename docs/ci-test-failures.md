@@ -1,0 +1,12 @@
+# CI test-failure observations
+
+The observation window runs from November 20 through December 4, 2026. A caught
+regression is a failure tied to observable behavior or a project contract. A
+change detector fails when the implementation changes while the contract still
+holds. Classify each fix when there is enough evidence to distinguish them.
+
+| Date       | Failure                                                                                                     | Classification    | Evidence                                                                                                                                                                                                                                                                                                 |
+| ---------- | ----------------------------------------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-11-20 | The mobile standalone Pause control could leave the convoy running.                                         | Caught regression | A held pointer reproduced the failure while the HUD detached its target. The fix keeps the target in place, and the distribution test holds the press across a frame. [Failing run](https://github.com/jatmn/neon-convoy/actions/runs/44773603775) · [Fix](https://github.com/jatmn/neon-convoy/pull/42) |
+| 2026-11-20 | A routing assertion failed after audio became a valid transitive simulation input in the selection fixture. | Change detector   | The fixed source-file assignment was an implementation detail. The test now exercises both dependency cases with controlled inputs. Its file also covers failure propagation and deployment gates. [Selection PR](https://github.com/jatmn/neon-convoy/pull/40)                                          |
+| 2026-11-20 | A failed pre-push run left Vite listening and blocked the next verification.                                | Caught regression | Pushing an invalid test commit reached hk's deadline before Playwright cleaned up its web servers. The independent Playwright deadline allowed cleanup, and the failed push left the remote tip unchanged. [Hook PR](https://github.com/jatmn/neon-convoy/pull/44)                                       |
