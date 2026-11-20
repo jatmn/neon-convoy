@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +25,10 @@ void test('shared tooling and the workflow validate every surface', () => {
     'scripts/verify.ts',
     'tsconfig.json',
     '.github/workflows/check.yml',
+    '.oxlintrc.json',
+    'AGENTS.md',
+    'fixtures/new-module.ts',
+    'docs/executable.ts',
   ]) {
     assert.deepEqual(checksFor([path]), all, path);
   }
@@ -36,9 +40,10 @@ void test('simulation changes exercise their browser and build consumers', () =>
   assert.deepEqual(checksFor(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
 });
 
-void test('UI and assets skip simulation but exercise browser and distribution', () => {
+void test('UI and assets exercise browser and distribution', () => {
   for (const path of ['src/main.ts', 'src/audio.ts', 'src/renderer.ts', 'vite.config.ts']) {
-    assert.deepEqual(checksFor([path]), { ...game, simulation: false }, path);
+    const checks = checksFor([path]);
+    assert.equal(checks.types && checks.browser && checks.distribution, true, path);
   }
   for (const path of ['src/style.css', 'index.html', 'favicon.svg', 'public/texture.png']) {
     assert.deepEqual(checksFor([path]), { ...none, browser: true, distribution: true }, path);
@@ -117,7 +122,7 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     const advancedBase = commit();
     assert.deepEqual(run(advancedBase, docs, 'selected'), none, 'base-only changes are excluded');
     git('switch', '-q', 'docs');
-    git('mv', 'play.html', 'old-play.html');
+    git('mv', 'play.html', 'archived.md');
     const renamed = commit();
     assert.deepEqual(
       run(docs, renamed, 'selected'),
@@ -129,6 +134,28 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     const deleted = commit();
     assert.deepEqual(run(advancedBase, deleted, 'selected'), all, 'deleted paths are included');
     assert.deepEqual(run('', docs, 'full'), all, 'full validation runs everything on a docs-only revision');
+    mkdirSync(join(dir, 'src'));
+    mkdirSync(join(dir, 'tests'));
+    writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 4;');
+    writeFileSync(join(dir, 'tests/engine.test.ts'), 'console.log("simulation");');
+    const unlinked = commit();
+    writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 5;');
+    assert.deepEqual(
+      run(unlinked, commit(), 'selected'),
+      { ...game, simulation: false },
+      'an independent file does not select simulation',
+    );
+    writeFileSync(
+      join(dir, 'tests/engine.test.ts'),
+      'import { cellSize } from "../src/audio.ts"; console.log(cellSize);',
+    );
+    const linked = commit();
+    writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 8;');
+    assert.deepEqual(
+      run(linked, commit(), 'selected'),
+      game,
+      'a transitive source change selects simulation',
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

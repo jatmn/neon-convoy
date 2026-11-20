@@ -103,23 +103,23 @@ If Chromium is already installed outside Playwright's expected location, set `PL
 
 GitHub Actions runs on pull requests (including forks), merge groups, and pushes to `main`. It uses read-only permissions and cancels superseded runs. Merge groups and main pushes run every check. Pull requests also run every check unless an active merge queue ruleset applies to `main`. When the queue is active, PR feedback uses the changed inputs below.
 
-| Changed surface                                         | Checks                                            |
-| ------------------------------------------------------- | ------------------------------------------------- |
-| Documentation or screenshots                            | Routing and owner-command authorization           |
-| Engine, levels, or shared game types                    | Types, simulation, browser controls, distribution |
-| UI, renderer, audio, or Vite config                     | Types, browser controls, distribution             |
-| CSS, entry HTML, favicon, or public assets              | Browser controls, distribution                    |
-| Simulation test                                         | Types and simulation                              |
-| Browser test                                            | Types and browser controls                        |
-| Standalone script, distribution test/config             | Types and distribution                            |
-| Project `LICENSE` or generated `play.html`              | Distribution                                      |
-| Shared Playwright config                                | Types, browser controls, distribution             |
-| Uploader code/tests                                     | Types and uploader regression tests               |
-| Deployment workflow                                     | Uploader regression tests                         |
-| Routing code/tests                                      | Routing and types                                 |
-| Package manifests, TypeScript config, or check workflow | All checks                                        |
+| Changed surface                               | Checks                                            |
+| --------------------------------------------- | ------------------------------------------------- |
+| Documentation or screenshots                  | Routing and owner-command authorization           |
+| Simulation dependencies and shared game types | Types, simulation, browser controls, distribution |
+| UI, renderer, audio, or Vite config           | Types, browser controls, distribution             |
+| CSS, entry HTML, favicon, or public assets    | Browser controls, distribution                    |
+| Simulation test                               | Types and simulation                              |
+| Browser test                                  | Types and browser controls                        |
+| Standalone script, distribution test/config   | Types and distribution                            |
+| Project `LICENSE` or generated `play.html`    | Distribution                                      |
+| Shared Playwright config                      | Types, browser controls, distribution             |
+| Uploader code/tests                           | Types and uploader regression tests               |
+| Deployment workflow                           | Uploader regression tests                         |
+| Routing code/tests                            | Routing and types                                 |
+| Toolchain, configs, or unclassified paths     | All checks                                        |
 
-Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job installs the pinned Playwright Chromium shell once and retains browser failure artifacts for seven days. It runs independent checks in parallel, rebuilds and checks that committed `play.html` is current; run `bun run build` and commit the result whenever build inputs change.
+Mixed changes run the union of their checks. Bun's module graph identifies the simulation imports. An unavailable graph or computed reference runs simulation. All checks rerun for package and lock files, Bun, TypeScript, lint and workflow configuration, AGENTS.md, and any path without a known owner. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job installs the pinned Playwright Chromium shell once and retains browser failure artifacts for seven days. It runs independent checks in parallel, rebuilds and checks that committed `play.html` is current; run `bun run build` and commit the result whenever build inputs change.
 
 Require the stable **Game checks** status for `main`. In a public organization repository, add the merge queue to the same active ruleset with no bypass actors. The queue validates the combined commit against the latest base before it can merge. An unavailable rules lookup results in full PR validation. GitHub-managed CodeQL and third-party integrations have their own scheduling.
 
