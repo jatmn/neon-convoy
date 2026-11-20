@@ -40,17 +40,38 @@ jobs:
           persist-credentials: false
       - name: Install pinned Bun
         run: bash scripts/install-bun.sh
+      - name: Restore exact dependencies
+        id: dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules
+          key: node-modules-ubuntu26-${{ runner.arch }}-${{ hashFiles('bun.lock', 'scripts/install-bun.sh') }}
+      - name: Record dependency cache result
+        env:
+          CACHE_HIT: ${{ steps.dependencies.outputs.cache-hit }}
+        run: echo "Exact node_modules cache hit: ${CACHE_HIT:-false}" >> "$GITHUB_STEP_SUMMARY"
       - name: Run game checks
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
           QUEUE_ACTIVE: ${{ steps.queue.outputs.active }}
+          CACHE_HIT: ${{ steps.dependencies.outputs.cache-hit }}
         run: |
           mode=full
           if [[ "$QUEUE_ACTIVE" == true ]]; then
             mode=selected
           fi
-          bun scripts/verify.ts "$mode" "$BASE_SHA" "$HEAD_SHA" --install-dependencies --install-chromium --check-committed
+          install_options=()
+          if [[ "$CACHE_HIT" != true ]]; then
+            install_options+=(--install-dependencies)
+          fi
+          bun scripts/verify.ts "$mode" "$BASE_SHA" "$HEAD_SHA" "${install_options[@]}" --install-chromium --check-committed
+      - name: Seed dependencies from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

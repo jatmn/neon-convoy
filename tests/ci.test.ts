@@ -213,6 +213,7 @@ test('PR selection requires an active merge queue; merge groups and pushes alway
   const verify = step('Run game checks');
   assert.match(lookup.configuration, /GH_TOKEN:/);
   assert.match(verify.configuration, /QUEUE_ACTIVE: \$\{\{ steps\.queue\.outputs\.active \}\}/);
+  assert.match(verify.configuration, /CACHE_HIT: \$\{\{ steps\.dependencies\.outputs\.cache-hit \}\}/);
   assert.doesNotMatch(verify.configuration, /GH_TOKEN|github\.token/);
   try {
     writeFileSync(join(dir, 'gh'), `#!/bin/sh
@@ -221,7 +222,13 @@ test('PR selection requires an active merge queue; merge groups and pushes alway
 [ "$API_RULES" != error ] || exit 1
 "$TEST_BUN" -e 'for (const rule of JSON.parse(process.env.API_RULES)) if (rule.type === "merge_queue") console.log(rule.type)'
 `, { mode: 0o755 });
-    writeFileSync(join(dir, 'bun'), '#!/bin/sh\n[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2\nprintf "%s\\n" "$2"\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'bun'), [
+      '#!/bin/sh',
+      '[ "$1 $3 $4" = "scripts/verify.ts base head" ] || exit 2',
+      'mode=$2',
+      'shift 4',
+      'printf "%s\\n" "$mode" "$@"',
+    ].join('\n'), { mode: 0o755 });
     const output = join(dir, 'outputs');
     const run = (command: string, env: Record<string, string>) => {
       writeFileSync(output, '');
@@ -232,18 +239,22 @@ test('PR selection requires an active merge queue; merge groups and pushes alway
       assert.equal(result.status, 0, result.stderr);
       return { output: readFileSync(output, 'utf8').trim(), stdout: result.stdout.trim() };
     };
-    const mode = (queue: string) => run(verify.command, {
-      QUEUE_ACTIVE: queue.replace(/^active=/, ''), BASE_SHA: 'base', HEAD_SHA: 'head',
-    }).stdout;
-    for (const [rules, expected] of [
+    const verifyArgs = (queue: string, cacheHit = 'false') => run(verify.command, {
+      QUEUE_ACTIVE: queue.replace(/^active=/, ''), CACHE_HIT: cacheHit, BASE_SHA: 'base', HEAD_SHA: 'head',
+    }).stdout.split('\n');
+    const validationFlags = ['--install-chromium', '--check-committed'];
+    for (const [rules, mode] of [
       ['[{"type":"required_status_checks"},{"type":"merge_queue"}]', 'selected'],
       ['[{"type":"required_status_checks"}]', 'full'],
       ['error', 'full'],
     ]) {
       const queue = run(lookup.command, { GH_REPO: 'fixture/game', API_RULES: rules, TEST_BUN: process.execPath });
-      assert.equal(mode(queue.output), expected, rules);
+      assert.deepEqual(verifyArgs(queue.output), [mode, '--install-dependencies', ...validationFlags], rules);
     }
-    assert.equal(mode(''), 'full', 'events that skip lookup run every check');
+    assert.deepEqual(verifyArgs('', ''), ['full', '--install-dependencies', ...validationFlags],
+      'events that skip lookup run every check, even when the cache output is blank');
+    assert.deepEqual(verifyArgs('active=true', 'true'), ['selected', ...validationFlags],
+      'an exact cache hit skips only the dependency install');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
