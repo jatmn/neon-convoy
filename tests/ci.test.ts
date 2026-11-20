@@ -401,7 +401,7 @@ void test(
         spawnSync(process.execPath, [script, ...args], {
           cwd: dir,
           encoding: 'utf8',
-          env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+          env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, GAME_CHECK_STARTED_MS: '' },
         });
       const result = run();
       assert.equal(result.status, 1, result.stderr);
@@ -442,7 +442,12 @@ void test(
         {
           cwd: dir,
           encoding: 'utf8',
-          env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, INSTALL_STATUS: status },
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env.PATH}`,
+            INSTALL_STATUS: status,
+            GAME_CHECK_STARTED_MS: '',
+          },
         },
       );
     try {
@@ -477,20 +482,20 @@ void test(
 
       const docs = run('1', 'selected', 'HEAD~2', 'HEAD~1');
       assert.equal(docs.status, 0, docs.stderr);
-      assert.match(docs.stdout, /^Unit tests: passed$/m);
-      assert.match(docs.stdout, /^Format: passed$/m);
+      assert.match(docs.stdout, /^Unit tests: passed in \d+ ms$/m);
+      assert.match(docs.stdout, /^Format: passed in \d+ ms$/m);
       assert.throws(() => readFileSync(join(dir, 'installs')), { code: 'ENOENT' });
 
       const types = run('0', 'selected', 'HEAD~1', 'HEAD');
       assert.equal(types.status, 0, types.stderr);
-      assert.match(types.stdout, /^TypeScript: passed$/m);
-      assert.match(types.stdout, /^Test lint: passed$/m);
-      assert.match(types.stdout, /^Native lint: passed$/m);
+      assert.match(types.stdout, /^TypeScript: passed in \d+ ms$/m);
+      assert.match(types.stdout, /^Test lint: passed in \d+ ms$/m);
+      assert.match(types.stdout, /^Native lint: passed in \d+ ms$/m);
       assert.equal(readFileSync(join(dir, 'installs'), 'utf8'), 'install\n');
 
       const failed = run('1', 'full', '', '');
       assert.equal(failed.status, 1, failed.stderr);
-      assert.match(failed.stdout, /^Unit tests: passed$/m);
+      assert.match(failed.stdout, /^Unit tests: passed in \d+ ms$/m);
       assert.match(failed.stderr, /^Failed game checks: Dependency install$/m);
       assert.match(
         failed.stderr,
@@ -549,6 +554,12 @@ void test(
         '#!/bin/sh\n[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2\nprintf "%s\\n" "$2"\n',
         { mode: 0o755 },
       );
+      writeFileSync(join(dir, 'date'), '#!/bin/sh\nprintf "100000\\n"\n', { mode: 0o755 });
+      writeFileSync(
+        join(dir, 'timeout'),
+        '#!/bin/sh\n[ "$1 $2" = "--kill-after=1s 32.000s" ] || exit 2\nshift 2\nexec "$@"\n',
+        { mode: 0o755 },
+      );
       const output = join(dir, 'outputs');
       const run = (command: string, env: Record<string, string>) => {
         writeFileSync(output, '');
@@ -565,6 +576,7 @@ void test(
           QUEUE_ACTIVE: queue.replace(/^active=/, ''),
           BASE_SHA: 'base',
           HEAD_SHA: 'head',
+          GAME_CHECK_STARTED_MS: '99000',
         }).stdout;
       for (const [rules, expected] of [
         ['[{"type":"required_status_checks"},{"type":"merge_queue"}]', 'selected'],
@@ -675,6 +687,7 @@ void test('distribution gate compares the generated file with the committed stan
       spawnSync(process.execPath, [script, 'selected', base, head, ...options], {
         cwd: dir,
         encoding: 'utf8',
+        env: { ...process.env, GAME_CHECK_STARTED_MS: '' },
       });
     const expectParityFailure = () => {
       const result = check('--check-committed');
@@ -689,7 +702,7 @@ void test('distribution gate compares the generated file with the committed stan
     git('add', 'play.html');
     const local = check();
     assert.equal(local.status, 0, local.stderr);
-    assert.match(local.stdout, /^Distribution: passed$/m);
+    assert.match(local.stdout, /^Distribution: passed in \d+ ms$/m);
     expectParityFailure();
     git('restore', '--source=HEAD', '--staged', '--worktree', 'play.html');
     writeFileSync(join(dir, 'generated.html'), 'standalone\n');

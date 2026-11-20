@@ -11,17 +11,36 @@ const checks = validationChecks(mode, base, head);
 const results = new Map<string, Promise<CheckResult>>();
 const exec = promisify(execFile);
 
+const budgets = new Map([
+  ['Native lint', 1_000],
+  ['Format', 1_000],
+  ['TypeScript', 5_000],
+  ['Unit tests', 30_000],
+  ['Browser controls', 30_000],
+  ['Distribution', 30_000],
+]);
+
 function check(name: string, start: () => Promise<void>, ...prerequisites: Promise<CheckResult>[]) {
   const result = Promise.all(prerequisites).then(async (ready): Promise<CheckResult> => {
     if (ready.some((status) => status !== 'passed')) return 'blocked';
 
     console.log(`${name}: started`);
+    const started = performance.now();
     try {
       await start();
-      console.log(`${name}: passed`);
+      const elapsed = performance.now() - started;
+      const budget = budgets.get(name) ?? Infinity;
+      if (elapsed >= budget) {
+        console.error(`${name}: failed (budget ${budget} ms) in ${elapsed.toFixed(0)} ms`);
+        return 'failed';
+      }
+      console.log(`${name}: passed in ${elapsed.toFixed(0)} ms`);
       return 'passed';
     } catch (error) {
-      console.error(`${name}: failed (${error instanceof Error ? error.message : String(error)})`);
+      const elapsed = performance.now() - started;
+      console.error(
+        `${name}: failed (${error instanceof Error ? error.message : String(error)}) in ${elapsed.toFixed(0)} ms`,
+      );
       return 'failed';
     }
   });
@@ -86,6 +105,19 @@ const chromium =
         dependencies,
       )
     : dependencies;
+
+if (process.env.GAME_CHECK_STARTED_MS) {
+  const started = Number(process.env.GAME_CHECK_STARTED_MS);
+  results.set(
+    'Setup budget',
+    chromium.then(() => {
+      const elapsed = Date.now() - started;
+      const withinBudget = elapsed >= 0 && elapsed < 15_000;
+      console.log(`Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit 15000 ms)`);
+      return withinBudget ? 'passed' : 'failed';
+    }),
+  );
+}
 
 if (checks.browser) {
   void run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], chromium);

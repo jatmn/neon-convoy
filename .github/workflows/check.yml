@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: game-checks-${{ github.event.pull_request.number || github.ref }}
@@ -17,8 +18,17 @@ jobs:
   checks:
     name: Game checks
     runs-on: ubuntu-26.04
-    timeout-minutes: 5
+    timeout-minutes: 1
     steps:
+      - name: Read job start
+        id: clock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+            --jq '.jobs[] | select(.name == "Game checks") | .started_at')
+          test -n "$started"
+          echo "started_ms=$(date -u -d "$started" +%s%3N)" >> "$GITHUB_OUTPUT"
       - name: Detect the main merge queue
         id: queue
         if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
@@ -45,15 +55,35 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
           QUEUE_ACTIVE: ${{ steps.queue.outputs.active }}
+          GAME_CHECK_STARTED_MS: ${{ steps.clock.outputs.started_ms }}
         run: |
           mode=full
           if [[ "$QUEUE_ACTIVE" == true ]]; then
             mode=selected
           fi
-          bun scripts/verify.ts "$mode" "$BASE_SHA" "$HEAD_SHA" --install-dependencies --install-chromium --check-committed
+          # Reserve two seconds of the 35 s job budget for runner finalization.
+          remaining=$(( 33000 - ($(date +%s%3N) - GAME_CHECK_STARTED_MS) ))
+          if (( remaining <= 0 )); then
+            echo "::error::Setup exhausted the required job budget."
+            exit 1
+          fi
+          printf -v deadline '%d.%03ds' "$((remaining / 1000))" "$((remaining % 1000))"
+          timeout --kill-after=1s "$deadline" bun scripts/verify.ts "$mode" "$BASE_SHA" "$HEAD_SHA" --install-dependencies --install-chromium --check-committed
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: browser-test-results
           path: test-results/
           retention-days: 7
+      - name: Enforce elapsed job budget
+        if: always()
+        env:
+          GAME_CHECK_STARTED_MS: ${{ steps.clock.outputs.started_ms }}
+        run: |
+          test -n "$GAME_CHECK_STARTED_MS"
+          elapsed=$(( $(date +%s%3N) - GAME_CHECK_STARTED_MS ))
+          echo "Game checks runner elapsed: ${elapsed} ms (33 s plus finalization)" >> "$GITHUB_STEP_SUMMARY"
+          if (( elapsed >= 33000 )); then
+            echo "::error::Game checks exceeded the 35 s job budget."
+            exit 1
+          fi
