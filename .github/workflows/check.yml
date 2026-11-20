@@ -63,22 +63,31 @@ jobs:
         id: dependencies
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: node_modules
-          key: node-modules-ubuntu26-${{ runner.arch }}-${{ hashFiles('bun.lock', 'scripts/install-bun.sh') }}
+          path: |
+            node_modules
+            !node_modules/.vite/**
+            !node_modules/.vite-temp/**
+          key: node-modules-v2-ubuntu26-${{ runner.arch }}-${{ hashFiles('bun.lock', 'scripts/install-bun.sh') }}
+      - name: Restore cached Bun packages
+        id: packages
+        if: steps.dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/neon-bun-cache
+          key: bun-packages-ubuntu26-${{ runner.arch }}-${{ hashFiles('scripts/install-bun.sh') }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-packages-ubuntu26-${{ runner.arch }}-${{ hashFiles('scripts/install-bun.sh') }}-
       - name: Install dependencies
         if: steps.dependencies.outputs.cache-hit != 'true'
+        env:
+          BUN_INSTALL_CACHE_DIR: ${{ runner.temp }}/neon-bun-cache
         run: bun install --frozen-lockfile
-      - name: Seed dependencies from main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.dependencies.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: node_modules
-          key: ${{ steps.dependencies.outputs.cache-primary-key }}
       - name: Record dependency cache result
         env:
           CACHE_HIT: ${{ steps.dependencies.outputs.cache-hit }}
+          PACKAGES_KEY: ${{ steps.packages.outputs.cache-matched-key }}
         run: |
           echo "Exact node_modules cache hit: ${CACHE_HIT:-false}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Restored Bun package cache: ${PACKAGES_KEY:-none}" >> "$GITHUB_STEP_SUMMARY"
       - name: Run game checks
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -100,6 +109,21 @@ jobs:
           fi
           printf -v deadline '%d.%03ds' "$((remaining / 1000))" "$((remaining % 1000))"
           timeout --kill-after=1s "$deadline" bun scripts/verify.ts "$MODE" "$BASE_SHA" "$HEAD_SHA" --install-chromium
+      - name: Seed dependencies from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            node_modules
+            !node_modules/.vite/**
+            !node_modules/.vite-temp/**
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
+      - name: Seed Bun packages from main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.dependencies.outputs.cache-hit != 'true' && steps.packages.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/neon-bun-cache
+          key: ${{ steps.packages.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
