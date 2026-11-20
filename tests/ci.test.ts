@@ -571,12 +571,13 @@ void test(
         assert.equal(result.status, 0, result.stderr);
         return { output: readFileSync(output, 'utf8').trim(), stdout: result.stdout.trim() };
       };
+      writeFileSync(join(dir, 'game-check-start'), '99000\n');
       const mode = (queue: string) =>
         run(verify.command, {
           QUEUE_ACTIVE: queue.replace(/^active=/, ''),
           BASE_SHA: 'base',
           HEAD_SHA: 'head',
-          GAME_CHECK_STARTED_MS: '99000',
+          RUNNER_TEMP: dir,
         }).stdout;
       for (const [rules, expected] of [
         ['[{"type":"required_status_checks"},{"type":"merge_queue"}]', 'selected'],
