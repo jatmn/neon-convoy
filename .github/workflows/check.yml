@@ -113,7 +113,7 @@ jobs:
     name: Browser controls
     needs: changes
     if: needs.changes.outputs.browser == 'true' && needs.changes.outputs.reused != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -124,7 +124,9 @@ jobs:
           node-version: '22.18.0'
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # Both projects use Playwright's default Chromium headless shell.
+      - name: Install pinned Chromium headless shell
+        run: npx --no-install playwright install --only-shell chromium
       - run: npm run test:browser
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
@@ -137,7 +139,7 @@ jobs:
     name: Production and standalone
     needs: changes
     if: needs.changes.outputs.distribution == 'true' && needs.changes.outputs.reused != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,7 +153,9 @@ jobs:
       - run: npm run build
       - name: Check committed standalone build
         run: git show HEAD:play.html | cmp - play.html
-      - run: npx playwright install --with-deps chromium
+      # Both projects use Playwright's default Chromium headless shell.
+      - name: Install pinned Chromium headless shell
+        run: npx --no-install playwright install --only-shell chromium
       - run: npm run test:distribution
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
