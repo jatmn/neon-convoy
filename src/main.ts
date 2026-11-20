@@ -187,7 +187,7 @@ function showResult() {
   $('#result-retry').onclick = () => loadLevel(levelIndex);
   $('#result-next').onclick = () => loadLevel(won ? (levelIndex+1)%LEVELS.length : levelIndex);
 }
-function toggleMusic() { muted = !muted; audio.setMuted(muted); if(!muted && game.status==='running' && !game.paused) audio.unlock(); try { localStorage.setItem('neon-convoy-muted',String(muted)); } catch {} updateSound(); }
+function toggleMusic() { muted = !muted; audio.setMuted(muted); if(!muted && game.status==='running' && !game.paused) void audio.unlock(); try { localStorage.setItem('neon-convoy-muted',String(muted)); } catch { /* Private browsing may disable persistence. */ } updateSound(); }
 function updateSound() { $('#sound').innerHTML = icon(muted ? 'muted' : 'sound'); $('#sound').setAttribute('aria-label',muted ? 'Unmute music' : 'Mute music'); }
 function finishEdit() { editing=false; drawing=false; $('#editor').hidden=true; $('#sandbox').setAttribute('aria-pressed','false'); }
 $('#deploy').onclick = playPause;
@@ -223,7 +223,7 @@ canvas.addEventListener('pointercancel',()=>drawing=false);
 document.addEventListener('keydown',e=>{
   if($<HTMLDialogElement>('#modal').open || /INPUT|TEXTAREA|SELECT/.test((e.target instanceof Element ? e.target.tagName : ''))) return;
   if(e.repeat) return;
-  if(e.code==='Space') { e.preventDefault(); playPause(); }
+  if(e.code==='Space') { e.preventDefault(); void playPause(); }
   else if(/^[1-6]$/.test(e.key)) selectTool(toolInfo[Number(e.key)-1].id);
   else if(e.key.toLowerCase()==='r') loadLevel(levelIndex);
   else if(e.key.toLowerCase()==='m') toggleMusic();

@@ -9,7 +9,7 @@ interface RenderOptions {
 }
 
 function context2D(canvas: Surface): Context2D {
-  const ctx = canvas.getContext('2d') as Context2D | null;
+  const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D is unavailable');
   return ctx;
 }

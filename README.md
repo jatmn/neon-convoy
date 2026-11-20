@@ -93,6 +93,8 @@ bun run verify
 
 Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs all local gates; individual commands are `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution` (after building).
 
+Use `bun lint --type-aware --all --max-warnings 0` to run the required lint rules in `.oxlintrc.json`. The rules cover correctness, suspicious code, performance and new checks. Deployment tests and uploads intentionally sequence operations. Browser rules preserve CSS imports, typed DOM access and defensive conversions.
+
 Bun uses its TypeScript 7 checker and runs the scripts and isolated, randomized simulation tests. Vite builds the browser code. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
 
 If Chromium is already installed outside Playwright's expected location, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable before running browser tests.

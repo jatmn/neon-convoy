@@ -11,23 +11,23 @@ const none = { types: false, simulation: false, browser: false, distribution: fa
 const game = { ...none, types: true, simulation: true, browser: true, distribution: true };
 const all = { ...game, deployment: true };
 
-test('documentation and screenshots skip game checks', () => {
+void test('documentation and screenshots skip game checks', () => {
   assert.deepEqual(checksFor(['README.md', 'docs/validation.md', 'docs/screenshots/mobile.png']), none);
   assert.deepEqual(checksFor([]), none);
 });
 
-test('shared tooling and the workflow validate every surface', () => {
+void test('shared tooling and the workflow validate every surface', () => {
   for (const path of ['package.json', 'bun.lock', 'bunfig.toml', 'scripts/install-bun.sh', 'scripts/verify.ts', 'tsconfig.json', '.github/workflows/check.yml']) {
     assert.deepEqual(checksFor([path]), all, path);
   }
 });
 
-test('simulation changes exercise their browser and build consumers', () => {
+void test('simulation changes exercise their browser and build consumers', () => {
   for (const path of ['src/engine.ts', 'src/levels.ts', 'src/types.ts']) assert.deepEqual(checksFor([path]), game, path);
   assert.deepEqual(checksFor(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
 });
 
-test('UI and assets skip simulation but exercise browser and distribution', () => {
+void test('UI and assets skip simulation but exercise browser and distribution', () => {
   for (const path of ['src/main.ts', 'src/audio.ts', 'src/renderer.ts', 'vite.config.ts']) {
     assert.deepEqual(checksFor([path]), { ...game, simulation: false }, path);
   }
@@ -36,7 +36,7 @@ test('UI and assets skip simulation but exercise browser and distribution', () =
   }
 });
 
-test('test and packaging changes only run their related checks', () => {
+void test('test and packaging changes only run their related checks', () => {
   assert.deepEqual(checksFor(['tests/browser.spec.ts']), { ...none, types: true, browser: true });
   for (const path of ['scripts/standalone.ts', 'tests/distribution.spec.ts', 'playwright.distribution.config.ts']) {
     assert.deepEqual(checksFor([path]), { ...none, types: true, distribution: true }, path);
@@ -46,7 +46,7 @@ test('test and packaging changes only run their related checks', () => {
   assert.deepEqual(checksFor(['tests/engine.test.ts', 'play.html']), { ...none, types: true, simulation: true, distribution: true });
 });
 
-test('deployment and routing changes skip unrelated game tests', () => {
+void test('deployment and routing changes skip unrelated game tests', () => {
   for (const path of ['scripts/deploy.ts', 'tests/deploy.test.ts']) {
     assert.deepEqual(checksFor([path]), { ...none, types: true, deployment: true });
   }
@@ -54,7 +54,7 @@ test('deployment and routing changes skip unrelated game tests', () => {
   for (const path of ['scripts/ci.ts', 'tests/ci.test.ts']) assert.deepEqual(checksFor([path]), { ...none, types: true });
 });
 
-test('CI entry point handles PR base divergence, deletions, renames and full validation', () => {
+void test('CI entry point handles PR base divergence, deletions, renames and full validation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-ci-'));
   const script = fileURLToPath(new URL('../scripts/ci.ts', import.meta.url));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
@@ -97,7 +97,7 @@ test('CI entry point handles PR base divergence, deletions, renames and full val
   }
 });
 
-test('required game checks fail and report all unsuccessful commands', { skip: process.platform === 'win32' }, () => {
+void test('required game checks fail and report all unsuccessful commands', { skip: process.platform === 'win32' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-verify-'));
   const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
   try {
@@ -113,7 +113,7 @@ test('required game checks fail and report all unsuccessful commands', { skip: p
   }
 });
 
-test('PR selection requires an active merge queue; merge groups and pushes always run every check', { skip: process.platform === 'win32' }, () => {
+void test('PR selection requires an active merge queue; merge groups and pushes always run every check', { skip: process.platform === 'win32' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-queue-'));
   const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
   assert.match(workflow, /^  merge_group:\n    types: \[checks_requested\]$/m);
@@ -143,7 +143,7 @@ test('PR selection requires an active merge queue; merge groups and pushes alway
   }
 });
 
-test('deployment gate waits for exact main CI and rejects failed, cancelled or missing validation', { skip: process.platform === 'win32' }, () => {
+void test('deployment gate waits for exact main CI and rejects failed, cancelled or missing validation', { skip: process.platform === 'win32' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-deploy-gate-'));
   const workflow = readFileSync(new URL('../.github/workflows/deploy.yml', import.meta.url), 'utf8');
   const source = workflow.match(/- name: Wait for successful main CI[\s\S]*?run: \|\n((?:          .*\n)+)/)?.[1];
@@ -167,7 +167,7 @@ test('deployment gate waits for exact main CI and rejects failed, cancelled or m
   }
 });
 
-test('distribution gate compares the generated file with the committed standalone', { skip: process.platform === 'win32' }, () => {
+void test('distribution gate compares the generated file with the committed standalone', { skip: process.platform === 'win32' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-standalone-'));
   const verify = readFileSync(new URL('../scripts/verify.ts', import.meta.url), 'utf8');
   const command = verify.match(/'([^']*git show HEAD:play\.html \| cmp - play\.html)'/)?.[1];

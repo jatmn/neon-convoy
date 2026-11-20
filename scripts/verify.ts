@@ -20,6 +20,7 @@ const unitFiles = ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts']
 if (checks.simulation) unitFiles.push('tests/engine.test.ts');
 if (checks.deployment) unitFiles.push('tests/deploy.test.ts');
 results.set('Unit tests', run('Unit tests', 'bun', 'test', '--isolate', '--randomize', ...unitFiles));
+results.set('Lint', run('Lint', 'bun', 'lint', '--type-aware', '--all', '--max-warnings', '0'));
 if (checks.types) results.set('TypeScript', run('TypeScript', 'bun', 'check'));
 
 const chromium = install === '--install-chromium' && (checks.browser || checks.distribution)
