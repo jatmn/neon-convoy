@@ -21,14 +21,14 @@ A complete browser rescue-puzzle game inspired by the terrain and crowd-manageme
 
 ## Your toolkit
 
-| Key | Tool | Use |
-| --- | --- | --- |
-| 1 | Laser | Cut a horizontal tunnel through rock ahead. |
-| 2 | Drill | Open a shaft through the ground beneath a drone. |
-| 3 | Missile | Fire a projectile that blasts away an obstacle. |
-| 4 | Bridge | Build a rising staircase across a gap. Start before the edge. |
-| 5 | Blocker | Stop a drone and reverse approaching traffic. Assign Blocker again to release it for free. |
-| 6 | Jets | Give a drone permanent protection against long falls. |
+| Key | Tool    | Use                                                                                        |
+| --- | ------- | ------------------------------------------------------------------------------------------ |
+| 1   | Laser   | Cut a horizontal tunnel through rock ahead.                                                |
+| 2   | Drill   | Open a shaft through the ground beneath a drone.                                           |
+| 3   | Missile | Fire a projectile that blasts away an obstacle.                                            |
+| 4   | Bridge  | Build a rising staircase across a gap. Start before the edge.                              |
+| 5   | Blocker | Stop a drone and reverse approaching traffic. Assign Blocker again to release it for free. |
+| 6   | Jets    | Give a drone permanent protection against long falls.                                      |
 
 Drones drive on their own, turn at walls, and fall off ledges. Tool charges are shared and limited. Violet rock can be removed; striped steel survives destruction. Orange conduits are fatal. Select a tool before clicking a drone. You can assign while paused.
 
@@ -40,18 +40,18 @@ Drones drive on their own, turn at walls, and fall off ledges. Tool charges are 
 
 ## Campaign
 
-| Sector | Name | Focus |
-| --- | --- | --- |
-| 01 | First Light | Learn laser cutting and shared routes. |
-| 02 | Skybridge | Construct a crossing over a dangerous gap. |
-| 03 | Undercurrent | Drill to the lower route. |
-| 04 | Fire in the Hole | Clear a gate with a missile. |
-| 05 | Turnabout | Redirect the convoy with a blocker. |
-| 06 | Freefall | Equip landing jets before the drop. |
-| 07 | Crossed Signals | Combine cutting and construction. |
-| 08 | The Iron Vein | Route under steel and clear the lower lane. |
-| 09 | Deep Circuit | Combine jets, drilling, and construction. |
-| 10 | Neon Convoy | Coordinate laser, bridge, and missile assignments. |
+| Sector | Name             | Focus                                              |
+| ------ | ---------------- | -------------------------------------------------- |
+| 01     | First Light      | Learn laser cutting and shared routes.             |
+| 02     | Skybridge        | Construct a crossing over a dangerous gap.         |
+| 03     | Undercurrent     | Drill to the lower route.                          |
+| 04     | Fire in the Hole | Clear a gate with a missile.                       |
+| 05     | Turnabout        | Redirect the convoy with a blocker.                |
+| 06     | Freefall         | Equip landing jets before the drop.                |
+| 07     | Crossed Signals  | Combine cutting and construction.                  |
+| 08     | The Iron Vein    | Route under steel and clear the lower lane.        |
+| 09     | Deep Circuit     | Combine jets, drilling, and construction.          |
+| 10     | Neon Convoy      | Coordinate laser, bridge, and missile assignments. |
 
 Every level has a distinct original looping synthwave arrangement, synthesized in real time with bass, arpeggios, pads, and drums. The drone art is an original generated sprite sheet with nine animation states and four frames per state. No original Lemmings assets, music, or levels are included.
 
@@ -101,6 +101,8 @@ bun run verify
 
 Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs native type-aware Bun lint, `bun run lint` (Landmines test lint), `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution`.
 
+Run `bun fmt` to format tracked source and documentation. Generated `play.html` is checked against a fresh build.
+
 Use `bun lint --no-script --config .oxlintrc.native.json --type-aware --all --max-warnings 0` to run the native correctness, suspicious code, performance, and nursery rules. Deployment and the browser test for stable Play/Pause controls intentionally sequence operations. The configuration preserves CSS imports, typed DOM access, and defensive conversions.
 
 Bun uses its TypeScript 7 checker and runs the scripts and isolated, randomized unit tests. Vite builds the browser code. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
@@ -113,22 +115,22 @@ GitHub Actions runs on pull requests (including forks), merge groups, and pushes
 
 In the table, Types includes TypeScript, Landmines test lint, and native type-aware Bun lint.
 
-| Changed surface | Checks |
-| --- | --- |
-| Documentation or screenshots | Routing and owner-command authorization |
-| Engine, levels, or shared game types | Types, simulation, browser controls, distribution |
-| UI, renderer, audio, or Vite config | Types, browser controls, distribution |
-| CSS, entry HTML, favicon, or public assets | Browser controls, distribution |
-| Simulation test | Types and simulation |
-| Browser test | Types and browser controls |
-| Standalone script, distribution test/config | Types and distribution |
-| Project `LICENSE` or generated `play.html` | Distribution |
-| Shared Playwright config | Types, browser controls, distribution |
-| Uploader code/tests | Types and uploader regression tests |
-| Deployment workflow | Uploader regression tests |
-| Routing code/tests | Routing and types |
-| Oxlint configuration or otherwise unrouted JS/TS files | Types |
-| Package manifests, Bun install/configuration, TypeScript config, or check workflow | All checks |
+| Changed surface                                                                    | Checks                                            |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Documentation or screenshots                                                       | Routing and owner-command authorization           |
+| Engine, levels, or shared game types                                               | Types, simulation, browser controls, distribution |
+| UI, renderer, audio, or Vite config                                                | Types, browser controls, distribution             |
+| CSS, entry HTML, favicon, or public assets                                         | Browser controls, distribution                    |
+| Simulation test                                                                    | Types and simulation                              |
+| Browser test                                                                       | Types and browser controls                        |
+| Standalone script, distribution test/config                                        | Types and distribution                            |
+| Project `LICENSE` or generated `play.html`                                         | Distribution                                      |
+| Shared Playwright config                                                           | Types, browser controls, distribution             |
+| Uploader code/tests                                                                | Types and uploader regression tests               |
+| Deployment workflow                                                                | Uploader regression tests                         |
+| Routing code/tests                                                                 | Routing and types                                 |
+| Oxlint configuration or otherwise unrouted JS/TS files                             | Types                                             |
+| Package manifests, Bun install/configuration, TypeScript config, or check workflow | All checks                                        |
 
 Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job shares one dependency install when a selected check needs packages. Browser and distribution checks share one pinned Playwright Chromium headless shell installation, and browser failure artifacts are retained for seven days. The job runs independent checks in parallel. For distribution it rebuilds and checks that committed `play.html` is current. Run `bun run build` and commit the result whenever build inputs change.
 

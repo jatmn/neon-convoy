@@ -29,26 +29,43 @@ function playSolution(level: Level) {
 
 void test('ten progressively equipped levels have valid goals and deterministic solutions', () => {
   assert.equal(LEVELS.length, 10);
-  assert.deepEqual(LEVELS.map(level => level.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-  assert.deepEqual(LEVELS.map(level => level.total), [8, 9, 10, 10, 10, 11, 12, 13, 14, 16]);
-  assert.deepEqual(LEVELS.map(level => level.required), [6, 8, 9, 9, 9, 10, 11, 12, 13, 14]);
+  assert.deepEqual(
+    LEVELS.map((level) => level.id),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  );
+  assert.deepEqual(
+    LEVELS.map((level) => level.total),
+    [8, 9, 10, 10, 10, 11, 12, 13, 14, 16],
+  );
+  assert.deepEqual(
+    LEVELS.map((level) => level.required),
+    [6, 8, 9, 9, 9, 10, 11, 12, 13, 14],
+  );
   for (const level of LEVELS) {
     assert.ok(level.required > 0 && level.required <= level.total, level.name);
     assert.ok(level.spawn.x >= 0 && level.spawn.x < WORLD_WIDTH, level.name);
     assert.ok(level.exit.y >= 0 && level.exit.y < WORLD_HEIGHT, level.name);
     const { game, assigned } = playSolution(level);
     assert.equal(game.status, 'won', `${level.name}: ${JSON.stringify(game.snapshot())}`);
-    assert.equal(game.saved, level.total - (level.id === 5 ? 1 : 0), `${level.name}: rescue every available drone`);
+    assert.equal(
+      game.saved,
+      level.total - (level.id === 5 ? 1 : 0),
+      `${level.name}: rescue every available drone`,
+    );
     assert.equal(game.lost, 0, level.name);
     assert.ok(game.score > 0, level.name);
     assert.ok(game.elapsed < level.timeLimit, level.name);
-    for (const tool of assigned) assert.equal(game.inventory[tool], level.tools[tool] - 1, `${level.name}: spent ${tool}`);
+    for (const tool of assigned)
+      assert.equal(game.inventory[tool], level.tools[tool] - 1, `${level.name}: spent ${tool}`);
     if (level.solution.boostAll) assert.equal(game.inventory.boost, 0, `${level.name}: boost all`);
   }
 });
 
 void test('terrain edits use 4-pixel cells, retain steel, and report revisions', () => {
-  const terrain = new Terrain([{ x: 0, y: 0, w: 8, h: 8, type: 1 }, { x: 8, y: 0, w: 8, h: 8, type: 2 }]);
+  const terrain = new Terrain([
+    { x: 0, y: 0, w: 8, h: 8, type: 1 },
+    { x: 8, y: 0, w: 8, h: 8, type: 2 },
+  ]);
   assert.equal(terrain.width, 300);
   assert.equal(terrain.height, 150);
   assert.equal(terrain.cellSize, CELL_SIZE);
@@ -131,8 +148,14 @@ void test('pause freezes time but still permits assignment; reset restores count
 
 void test('steel survives laser and missile damage', () => {
   const level = {
-    ...LEVELS[0], total: 1, required: 1, spawn: { x: 350, y: 500, dir: 1 },
-    terrain: [{ x: 0, y: 500, w: 1200, h: 100, type: 1 }, { x: 400, y: 450, w: 32, h: 50, type: 2 }],
+    ...LEVELS[0],
+    total: 1,
+    required: 1,
+    spawn: { x: 350, y: 500, dir: 1 },
+    terrain: [
+      { x: 0, y: 500, w: 1200, h: 100, type: 1 },
+      { x: 400, y: 450, w: 32, h: 50, type: 2 },
+    ],
     tools: { laser: 1, drill: 0, missile: 1, bridge: 0, block: 0, boost: 0 },
   };
   const game = new Game(level);
@@ -149,11 +172,13 @@ void test('steel survives laser and missile damage', () => {
 
 void test('unprotected fall loses a drone while boost saves it', () => {
   const level = { ...LEVELS[5], total: 1, required: 1, tools: { ...LEVELS[5].tools, boost: 1 } };
-  const plain = new Game(level); plain.start();
+  const plain = new Game(level);
+  plain.start();
   for (let i = 0; i < 1200 && plain.status === 'running'; i++) plain.update(1 / 60);
   assert.equal(plain.status, 'lost');
   assert.equal(plain.lost, 1);
-  const boosted = new Game(level); boosted.start();
+  const boosted = new Game(level);
+  boosted.start();
   assert.equal(boosted.assign(1, 'boost'), true);
   for (let i = 0; i < 2400 && boosted.status === 'running'; i++) boosted.update(1 / 60);
   assert.equal(boosted.status, 'won');
@@ -161,8 +186,15 @@ void test('unprotected fall loses a drone while boost saves it', () => {
 });
 
 void test('time limit ends a run that cannot reach its exit', () => {
-  const level = { ...LEVELS[0], total: 1, required: 1, timeLimit: 2, tools: { ...LEVELS[0].tools, laser: 0 } };
-  const game = new Game(level); game.start();
+  const level = {
+    ...LEVELS[0],
+    total: 1,
+    required: 1,
+    timeLimit: 2,
+    tools: { ...LEVELS[0].tools, laser: 0 },
+  };
+  const game = new Game(level);
+  game.start();
   for (let i = 0; i < 180; i++) game.update(1 / 60);
   assert.equal(game.status, 'lost');
   assert.equal(game.remaining, 0);
@@ -170,8 +202,16 @@ void test('time limit ends a run that cannot reach its exit', () => {
 });
 
 void test('meeting the quota keeps play open so remaining drones can add to the score', () => {
-  const level = { ...LEVELS[0], total: 2, required: 1, timeLimit: 10, exit: { x: 70, y: 500 }, terrain: [{ x: 0, y: 500, w: 1200, h: 100, type: 1 }] };
-  const game = new Game(level); game.start();
+  const level = {
+    ...LEVELS[0],
+    total: 2,
+    required: 1,
+    timeLimit: 10,
+    exit: { x: 70, y: 500 },
+    terrain: [{ x: 0, y: 500, w: 1200, h: 100, type: 1 }],
+  };
+  const game = new Game(level);
+  game.start();
   game.update(1 / 60);
   assert.equal(game.saved, 1);
   assert.equal(game.status, 'running');
@@ -183,7 +223,8 @@ void test('meeting the quota keeps play open so remaining drones can add to the 
 });
 
 void test('blocker can be released without spending another block', () => {
-  const game = new Game(LEVELS[4]); game.start();
+  const game = new Game(LEVELS[4]);
+  game.start();
   assert.equal(game.assign(1, 'block'), true);
   assert.equal(game.drones[0].state, 'block');
   assert.equal(game.assign(1, 'block'), true);
