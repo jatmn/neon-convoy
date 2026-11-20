@@ -91,15 +91,17 @@ bun --bun playwright install --only-shell chromium
 bun run verify
 ```
 
-Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs all local gates; individual commands are `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution` (after building).
+Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs `bun run lint` (Landmines test lint), `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution`.
 
-Bun uses its TypeScript 7 checker and runs the scripts and isolated, randomized simulation tests. Vite builds the browser code. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
+Bun uses its TypeScript 7 checker and runs the scripts and isolated, randomized unit tests. Vite builds the browser code. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
 
 If Chromium is already installed outside Playwright's expected location, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable before running browser tests.
 
 ## Continuous integration
 
 GitHub Actions runs on pull requests (including forks), merge groups, and pushes to `main`. It uses read-only permissions and cancels superseded runs. Merge groups and main pushes run every check. Pull requests also run every check unless an active merge queue ruleset applies to `main`. When the queue is active, PR feedback uses the changed inputs below.
+
+In the table, Types includes TypeScript and Landmines test lint.
 
 | Changed surface | Checks |
 | --- | --- |
@@ -114,10 +116,11 @@ GitHub Actions runs on pull requests (including forks), merge groups, and pushes
 | Shared Playwright config | Types, browser controls, distribution |
 | Uploader code/tests | Types and uploader regression tests |
 | Deployment workflow | Uploader regression tests |
-| Routing code/tests | Routing and types |
-| Package manifests, TypeScript config, or check workflow | All checks |
+| Routing code/tests | Routing, types, and test lint |
+| Oxlint configuration or otherwise unrouted JS/TS files | Types and test lint |
+| Package manifests, Bun install/configuration, TypeScript config, or check workflow | All checks |
 
-Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job installs the pinned Playwright Chromium shell once and retains browser failure artifacts for seven days. It runs independent checks in parallel, rebuilds and checks that committed `play.html` is current; run `bun run build` and commit the result whenever build inputs change.
+Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job shares one dependency install when a selected check needs packages. Browser and distribution checks share one pinned Playwright Chromium headless shell installation, and browser failure artifacts are retained for seven days. The job runs independent checks in parallel. For distribution it rebuilds and checks that committed `play.html` is current. Run `bun run build` and commit the result whenever build inputs change.
 
 Require the stable **Game checks** status for `main`. In a public organization repository, add the merge queue to the same active ruleset with no bypass actors. The queue validates the combined commit against the latest base before it can merge. An unavailable rules lookup results in full PR validation. GitHub-managed CodeQL and third-party integrations have their own scheduling.
 

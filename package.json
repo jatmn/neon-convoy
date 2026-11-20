@@ -10,14 +10,17 @@
     "build": "bun --bun vite build && bun scripts/standalone.ts",
     "preview": "bun --bun vite preview --host 0.0.0.0",
     "test:browser": "bun --bun playwright test",
+    "lint": "bun --bun oxlint .",
     "verify": "bun scripts/verify.ts",
     "test:distribution": "bun --bun playwright test --config playwright.distribution.config.ts"
   },
   "devDependencies": {
-    "@playwright/test": "1.63.0",
-    "@types/node": "26.6.4",
+    "@interfere/landmines": "0.1.0",
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.6",
+    "oxlint": "1.81.0",
     "typescript": "7.0.2",
-    "vite": "8.3.2"
+    "vite": "8.3.8"
   },
   "packageManager": "bun@1.4.5-canary.20261120.1"
 }
