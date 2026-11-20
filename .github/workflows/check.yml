@@ -62,7 +62,8 @@ jobs:
       - name: Record dependency cache result
         env:
           CACHE_HIT: ${{ steps.dependencies.outputs.cache-hit }}
-        run: echo "Exact node_modules cache hit: ${CACHE_HIT:-false}" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "Exact node_modules cache hit: ${CACHE_HIT:-false}" >> "$GITHUB_STEP_SUMMARY"
       - name: Run game checks
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
