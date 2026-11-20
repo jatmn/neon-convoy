@@ -91,7 +91,7 @@ npx playwright install chromium
 npm run check
 ```
 
-Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `npm run check` runs all local gates; individual commands are `npm run typecheck`, `npm test`, `npm run build`, `npm run test:browser`, and `npm run test:distribution` (after building).
+Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `npm run check` runs `npm run lint` (Landmines test lint), `npm run typecheck`, `npm test`, `npm run build`, `npm run test:browser`, and `npm run test:distribution` in order.
 
 TypeScript is checked by `tsc`; Vite builds the browser code and Node runs the scripts and simulation tests using native type stripping. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
 
@@ -100,6 +100,8 @@ If Chromium is already installed outside Playwright's expected location, set `PL
 ## Continuous integration
 
 GitHub Actions runs on pull requests (including forks), merge groups, and pushes to `main`. It uses read-only permissions and cancels superseded runs. Merge groups and main pushes run every check. Pull requests also run every check unless an active merge queue ruleset applies to `main`. When the queue is active, PR feedback uses the changed inputs below.
+
+The TypeScript job also runs the Landmines test lint rules.
 
 | Changed surface | Checks |
 | --- | --- |
@@ -114,7 +116,8 @@ GitHub Actions runs on pull requests (including forks), merge groups, and pushes
 | Shared Playwright config | Types, browser controls, distribution |
 | Uploader code/tests | Types and uploader regression tests |
 | Deployment workflow | Uploader regression tests |
-| Routing code/tests | Routing and types |
+| Routing code/tests | Routing, types, and test lint |
+| Oxlint configuration or otherwise unrouted JS/TS files | Types and test lint |
 | Package manifests, TypeScript config, or check workflow | All checks |
 
 Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. Browser jobs install the pinned Playwright Chromium and retain failure artifacts for seven days. The distribution job rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.

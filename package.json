@@ -11,13 +11,16 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test tests/engine.test.ts tests/ci.test.ts tests/deploy.test.ts scripts/pullfrog-command-check.test.ts",
     "test:browser": "playwright test",
-    "check": "npm run typecheck && npm test && npm run build && npm run test:browser && npm run test:distribution",
+    "lint": "oxlint .",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run test:browser && npm run test:distribution",
     "typecheck": "tsc --noEmit",
     "test:distribution": "playwright test --config playwright.distribution.config.ts"
   },
   "devDependencies": {
+    "@interfere/landmines": "0.1.0",
     "@playwright/test": "1.63.0",
     "@types/node": "26.6.4",
+    "oxlint": "1.81.0",
     "typescript": "7.0.2",
     "vite": "8.3.2"
   },
