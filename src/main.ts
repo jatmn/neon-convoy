@@ -5,6 +5,8 @@ import { LEVELS } from './levels.ts';
 import { Renderer } from './renderer.ts';
 import { AudioEngine } from './audio.ts';
 
+const playIconPath = 'm8 5 11 7-11 7z';
+const pauseIconPath = 'M8 5v14M16 5v14';
 const icons = {
   logo: '<path d="m4 15 8-10 8 10-8 5z"/><path d="m4 10 8 5 8-5M12 15v5"/>',
   laser: '<path d="m4 18 5-5 3 3-5 5zM11 13l7-7M16 4l4 4M17 12h4M12 3v4"/>',
@@ -14,8 +16,7 @@ const icons = {
   bridge: '<path d="M3 19h5v-5h5V9h5V4h3M3 22V19M8 22v-8m5 8V9m5 13V4"/>',
   block: '<path d="m8 3-5 5v8l5 5h8l5-5V8l-5-5zM8 12h8"/>',
   boost: '<path d="M8 15V6l4-4 4 4v9zM8 9l-4 4v5l4-3m8-6 4 4v5l-4-3M10 18v4m4-4v4"/>',
-  play: '<path d="m8 5 11 7-11 7z"/>',
-  pause: '<path d="M8 5v14M16 5v14"/>',
+  play: `<path d="${playIconPath}"/>`,
   reset: '<path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/>',
   sound: '<path d="m3 9 5 0 5-4v14l-5-4H3zM17 8a7 7 0 0 1 0 8m3-11a11 11 0 0 1 0 14"/>',
   muted: '<path d="m3 9 5 0 5-4v14l-5-4H3zM17 9l5 6m0-6-5 6"/>',
@@ -71,7 +72,7 @@ const toolInfo: { id: Tool; name: string; label: string; desc: string; key: stri
     key: '6',
   },
 ];
-function $<T extends HTMLElement = HTMLElement>(selector: string): T {
+function $<T extends Element = HTMLElement>(selector: string): T {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Missing required element: ${selector}`);
   return element;
@@ -136,6 +137,9 @@ $('#app').innerHTML = `
   <dialog id="modal"><button id="modal-close" class="icon-button modal-close" aria-label="Close dialog">${icon('close')}</button><div id="modal-content"></div></dialog>
 `;
 const canvas = $<HTMLCanvasElement>('#game');
+const pauseButton = $<HTMLButtonElement>('#pause');
+const pauseIcon = $<SVGPathElement>('#pause path');
+const pauseText = $('#pause span');
 const renderer = new Renderer(canvas);
 function difficultyLabel(level: Level) {
   return (
@@ -235,11 +239,11 @@ function updateHUD() {
   $('#start-banner').hidden = game.status !== 'ready' || editing;
   $('#pause-label').hidden = !game.paused || game.status !== 'running' || editing;
   const running = game.status === 'running' && !game.paused;
-  const pauseButton = $('#pause');
   const pauseAction = running ? 'Pause' : 'Play';
   // Keep the pointer target in place between press and release.
   if (pauseButton.getAttribute('aria-label') !== pauseAction) {
-    pauseButton.innerHTML = `${icon(running ? 'pause' : 'play')}<span>${pauseAction}</span>`;
+    pauseIcon.setAttribute('d', running ? pauseIconPath : playIconPath);
+    pauseText.textContent = pauseAction;
     pauseButton.setAttribute('aria-label', pauseAction);
   }
   $('#feed-status').textContent = editing
@@ -329,7 +333,7 @@ function finishEdit() {
   $('#sandbox').setAttribute('aria-pressed', 'false');
 }
 $('#deploy').onclick = playPause;
-$('#pause').onclick = playPause;
+pauseButton.onclick = playPause;
 $('#speed').onclick = () => {
   game.speed = game.speed === 2 ? 1 : 2;
   updateHUD();
