@@ -19,6 +19,20 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
+      - name: Detect the main merge queue
+        id: queue
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if queue=$(gh api "repos/$GH_REPO/rules/branches/main" --paginate --jq '.[] | select(.type == "merge_queue") | .type'); then
+            if [[ -n "$queue" ]]; then
+              echo 'active=true' >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "::warning::Could not confirm an active merge queue. Running the full suite."
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -28,31 +42,18 @@ jobs:
         with:
           node-version: '22.18.0'
           cache: npm
-      - name: Select affected surfaces
-        id: paths
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          # Narrow PR feedback only when an active queue will run the full suite.
-          mode=full
-          if [[ "$EVENT_NAME" == pull_request && "$BASE_REF" == main ]]; then
-            if queue=$(gh api "repos/$GH_REPO/rules/branches/main" --jq 'any(.[]; .type == "merge_queue")'); then
-              [[ "$queue" != true ]] || mode=selected
-            else
-              echo "::warning::Could not confirm an active merge queue. Running the full suite."
-            fi
-          fi
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
       - run: npm ci
       - name: Run game checks
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
-          MODE: ${{ steps.paths.outputs.mode }}
-        run: node scripts/verify.ts "$MODE" "$BASE_SHA" "$HEAD_SHA" --install-chromium
+          QUEUE_ACTIVE: ${{ steps.queue.outputs.active }}
+        run: |
+          mode=full
+          if [[ "$QUEUE_ACTIVE" == true ]]; then
+            mode=selected
+          fi
+          node scripts/verify.ts "$mode" "$BASE_SHA" "$HEAD_SHA" --install-chromium
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
