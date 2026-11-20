@@ -16,7 +16,7 @@ void test('documentation and screenshots skip game checks', () => {
   assert.deepEqual(checksFor([]), none);
 });
 
-void test('shared tooling and the workflow validate every surface', () => {
+void test('shared tooling and unclassified paths validate every surface', () => {
   for (const path of [
     'package.json',
     'bun.lock',
@@ -24,16 +24,16 @@ void test('shared tooling and the workflow validate every surface', () => {
     'scripts/install-bun.sh',
     'tsconfig.json',
     '.github/workflows/check.yml',
+    '.oxlintrc.json',
+    '.oxlintrc.native.json',
+    'AGENTS.md',
+    'fixtures/new-module.ts',
+    'docs/executable.ts',
+    'scripts/helper.mjs',
+    'src/helper.js',
   ]) {
     assert.deepEqual(checksFor([path]), all, path);
   }
-});
-
-void test('lint configuration and JavaScript changes run the types and lint job', () => {
-  for (const path of ['.oxlintrc.json', '.oxlintrc.native.json', 'scripts/helper.mjs']) {
-    assert.deepEqual(checksFor([path]), { ...none, types: true }, path);
-  }
-  assert.deepEqual(checksFor(['src/helper.js']), { ...game, simulation: false });
 });
 
 void test('simulation changes exercise their browser and build consumers', () => {
@@ -42,9 +42,10 @@ void test('simulation changes exercise their browser and build consumers', () =>
   assert.deepEqual(checksFor(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
 });
 
-void test('UI and assets skip simulation but exercise browser and distribution', () => {
+void test('UI and assets exercise browser and distribution', () => {
   for (const path of ['src/main.ts', 'src/audio.ts', 'src/renderer.ts']) {
-    assert.deepEqual(checksFor([path]), { ...game, simulation: false }, path);
+    const checks = checksFor([path]);
+    assert.equal(checks.types && checks.browser && checks.distribution, true, path);
   }
   for (const path of ['src/style.css', 'index.html', 'favicon.svg', '.gitattributes', 'public/texture.png']) {
     assert.deepEqual(checksFor([path]), { ...none, browser: true, distribution: true }, path);
@@ -136,7 +137,7 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     const runner = commit();
     assert.deepEqual(run(advancedBase, runner), all, 'runner-only changes exercise every surface');
     git('switch', '-q', 'docs');
-    git('mv', 'play.html', 'old-play.html');
+    git('mv', 'play.html', 'archived.md');
     const renamed = commit();
     assert.deepEqual(run(docs, renamed), { ...none, distribution: true }, 'old path of rename is included');
     git('switch', '-q', 'main');
@@ -148,6 +149,24 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
       all,
       'full validation runs everything on a docs-only revision',
     );
+    mkdirSync(join(dir, 'src'));
+    mkdirSync(join(dir, 'tests'));
+    writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 4;');
+    writeFileSync(join(dir, 'tests/engine.test.ts'), 'console.log("simulation");');
+    const unlinked = commit();
+    writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 5;');
+    assert.deepEqual(
+      run(unlinked, commit()),
+      { ...game, simulation: false },
+      'an independent file does not select simulation',
+    );
+    writeFileSync(
+      join(dir, 'tests/engine.test.ts'),
+      'import { cellSize } from "../src/audio.ts"; console.log(cellSize);',
+    );
+    const linked = commit();
+    writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 8;');
+    assert.deepEqual(run(linked, commit()), game, 'a transitive source change selects simulation');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -230,8 +249,9 @@ void test(
       writeFileSync(join(dir, 'README.md'), 'docs');
       git('add', 'README.md');
       git('commit', '-qm', 'docs');
-      writeFileSync(join(dir, 'fixture.ts'), 'export {};');
-      git('add', 'fixture.ts');
+      mkdirSync(join(dir, 'scripts'));
+      writeFileSync(join(dir, 'scripts/ci.ts'), 'export {};');
+      git('add', 'scripts/ci.ts');
       git('commit', '-qm', 'types');
       writeFileSync(
         join(dir, 'bun'),

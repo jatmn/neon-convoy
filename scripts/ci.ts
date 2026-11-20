@@ -1,33 +1,72 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { isBuiltin } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const fullChecks = { types: true, simulation: true, browser: true, distribution: true, deployment: true };
+
+const documentedInputs = /^(?:[^/]+\.md|docs\/.*\.md|docs\/screenshots\/[^/]+\.(?:png|jpg|webp))$/;
+const appEntries = /^(?:index\.html|favicon\.svg|vite\.config\.[cm]?[jt]s|\.gitattributes)$/;
+const sharedPlaywrightConfig = /^playwright\.config\.[cm]?[jt]s$/;
+const ownedInputs = [
+  appEntries,
+  sharedPlaywrightConfig,
+  /^(?:LICENSE|play\.html|playwright\.distribution\.config\.ts)$/,
+  /^src\/(?:audio|engine|env\.d|levels|main|renderer|types)\.ts$|^src\/style\.css$|^public\//,
+  /^tests\/(?:engine\.test|browser\.spec|distribution\.spec|deploy\.test|ci\.test)\.ts$/,
+  /^scripts\/(?:ci|deploy|standalone|pullfrog-command-check(?:\.test)?)\.ts$/,
+  /^\.github\/workflows\/deploy\.yml$/,
+];
+
+function simulationImports(paths: string[]) {
+  if (!paths.some((path) => path.startsWith('src/') && path.endsWith('.ts'))) return false;
+  const directory = mkdtempSync(join(tmpdir(), 'neon-simulation-'));
+  const metadata = join(directory, 'bundle.json');
+  try {
+    execFileSync(
+      process.execPath,
+      ['build', '--target=bun', '--packages=external', `--metafile=${metadata}`, 'tests/engine.test.ts'],
+      { stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+    const graph: { inputs: Record<string, { imports: { path: string; external?: boolean }[] }> } = JSON.parse(
+      readFileSync(metadata, 'utf8'),
+    );
+    for (const [file, input] of Object.entries(graph.inputs)) {
+      // Computed references or non-Node externals can hide a local input.
+      if (
+        /\b(?:import|require)\s*\(/.test(readFileSync(file, 'utf8')) ||
+        input.imports.some((entry) => entry.external && !isBuiltin(entry.path))
+      )
+        return true;
+    }
+    return paths.some((path) => Object.hasOwn(graph.inputs, path));
+  } catch (error) {
+    console.warn('Simulation dependency analysis failed; running the simulation suite.', error);
+    return true;
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 export function checksFor(paths: string[]) {
-  const shared = paths.some((path) =>
-    /^(package\.json|bun\.lock|bunfig\.toml|tsconfig[^/]*\.json|scripts\/(install-bun\.sh|verify\.ts)|\.github\/workflows\/check\.yml)$/.test(
-      path,
-    ),
-  );
-  const app = paths.some(
-    (path) =>
-      /^(src|public)\//.test(path) ||
-      /^(index\.html|favicon\.svg|vite\.config\.[cm]?[jt]s|\.gitattributes)$/.test(path),
-  );
-  const playwrightConfig = paths.some((path) => /^playwright\.config\.[cm]?[jt]s$/.test(path));
+  if (
+    paths.some(
+      (path) =>
+        path === 'AGENTS.md' ||
+        (!documentedInputs.test(path) && !ownedInputs.some((pattern) => pattern.test(path))),
+    )
+  )
+    return fullChecks;
+  const app = paths.some((path) => /^(src|public)\//.test(path) || appEntries.test(path));
+  const playwrightConfig = paths.some((path) => sharedPlaywrightConfig.test(path));
   return {
-    types:
-      shared ||
-      paths.some(
-        (path) =>
-          path === '.oxlintrc.json' ||
-          path === '.oxlintrc.native.json' ||
-          /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path),
-      ),
+    types: paths.some((path) => /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)),
     simulation:
-      shared || paths.some((path) => /^(src\/(engine|levels|types)\.ts|tests\/engine\.test\.ts)$/.test(path)),
-    browser: shared || app || playwrightConfig || paths.some((path) => path === 'tests/browser.spec.ts'),
+      paths.includes('src/types.ts') || paths.includes('tests/engine.test.ts') || simulationImports(paths),
+    browser: app || playwrightConfig || paths.some((path) => path === 'tests/browser.spec.ts'),
     distribution:
-      shared ||
       app ||
       playwrightConfig ||
       paths.some((path) =>
@@ -35,11 +74,9 @@ export function checksFor(paths: string[]) {
           path,
         ),
       ),
-    deployment:
-      shared ||
-      paths.some((path) =>
-        /^(scripts\/deploy\.ts|tests\/deploy\.test\.ts|\.github\/workflows\/deploy\.yml)$/.test(path),
-      ),
+    deployment: paths.some((path) =>
+      /^(scripts\/deploy\.ts|tests\/deploy\.test\.ts|\.github\/workflows\/deploy\.yml)$/.test(path),
+    ),
   };
 }
 
@@ -53,8 +90,7 @@ function changedPaths(base: string, head: string): string[] {
 }
 
 export function validationChecks(mode: string, base: string, head: string) {
-  if (mode === 'full')
-    return { types: true, simulation: true, browser: true, distribution: true, deployment: true };
+  if (mode === 'full') return fullChecks;
   if (mode === 'selected' && base && head) return checksFor(changedPaths(base, head));
   throw new Error('Expected full validation or selected validation with base and head SHAs');
 }
