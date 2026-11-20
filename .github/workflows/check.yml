@@ -23,7 +23,23 @@ jobs:
       simulation: ${{ steps.paths.outputs.simulation }}
       browser: ${{ steps.paths.outputs.browser }}
       distribution: ${{ steps.paths.outputs.distribution }}
+      deployment: ${{ steps.paths.outputs.deployment }}
+      uploader_result: ${{ steps.uploader.outcome }}
     steps:
+      - name: Detect the main merge queue
+        id: queue
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if queue=$(gh api "repos/$GH_REPO/rules/branches/main" --paginate --jq '.[] | select(.type == "merge_queue") | .type'); then
+            if [[ -n "$queue" ]]; then
+              echo 'active=true' >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "::warning::Could not confirm an active merge queue. Running the full suite."
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -32,31 +48,24 @@ jobs:
         with:
           node-version: '22.18.0'
           package-manager-cache: false
+      - name: Select checks to run
+        id: paths
+        env:
+          QUEUE_ACTIVE: ${{ steps.queue.outputs.active }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$QUEUE_ACTIVE" == true ]]; then
+            node scripts/ci.ts "$BASE_SHA" "$HEAD_SHA"
+          else
+            printf '%s=true\n' types simulation browser distribution deployment >> "$GITHUB_OUTPUT"
+          fi
       - name: Test CI routing (no dependencies required)
         run: node --test tests/ci.test.ts
       - name: Test owner-command authorization (no dependencies required)
         run: node --test scripts/pullfrog-command-check.test.ts
-      - name: Select affected surfaces
-        id: paths
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.sha }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          # Narrow PR feedback only when an active queue will run the full suite.
-          mode=full
-          if [[ "$EVENT_NAME" == pull_request && "$BASE_REF" == main ]]; then
-            if queue=$(gh api "repos/$GH_REPO/rules/branches/main" --jq 'any(.[]; .type == "merge_queue")'); then
-              [[ "$queue" != true ]] || mode=selected
-            else
-              echo "::warning::Could not confirm an active merge queue. Running the full suite."
-            fi
-          fi
-          node scripts/ci.ts "$BASE_SHA" "$HEAD_SHA" "$mode"
       - name: Test uploader (no dependencies required)
+        id: uploader
         if: steps.paths.outputs.deployment == 'true'
         run: node --test tests/deploy.test.ts
 
@@ -166,12 +175,15 @@ jobs:
           errors = []
           if results['changes']['result'] != 'success':
               errors.append('Check selection or tooling tests failed')
-          for job in ('types', 'simulation', 'browser', 'distribution'):
-              selected = results['changes']['outputs'].get(job)
+          outputs = results['changes']['outputs']
+          outcomes = {job: results[job]['result'] for job in ('types', 'simulation', 'browser', 'distribution')}
+          outcomes['deployment'] = outputs.get('uploader_result')
+          for job, outcome in outcomes.items():
+              selected = outputs.get(job)
               if selected not in ('true', 'false'):
                   errors.append(f'{job}: missing or invalid selection')
-              elif results[job]['result'] != ('success' if selected == 'true' else 'skipped'):
-                  errors.append(f'{job}: {results[job]["result"]}')
+              elif outcome != ('success' if selected == 'true' else 'skipped'):
+                  errors.append(f'{job}: {outcome}')
           for message in errors:
               print(f'::error::{message}', flush=True)
           raise SystemExit(bool(errors))

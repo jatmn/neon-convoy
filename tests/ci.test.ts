@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { changedPaths, checksFor } from '../scripts/ci.ts';
+import { checksFor } from '../scripts/ci.ts';
 
 const none = { types: false, simulation: false, browser: false, distribution: false, deployment: false };
 const game = { ...none, types: true, simulation: true, browser: true, distribution: true };
@@ -54,15 +54,15 @@ test('deployment and routing changes skip unrelated game tests', () => {
   for (const path of ['scripts/ci.ts', 'tests/ci.test.ts']) assert.deepEqual(checksFor([path]), { ...none, types: true });
 });
 
-test('CI entry point handles PR base divergence, deletions, renames and full validation', () => {
+test('CI entry point handles PR base divergence, deletions and renames', () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-ci-'));
   const script = fileURLToPath(new URL('../scripts/ci.ts', import.meta.url));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   const commit = () => { git('add', '.'); git('commit', '-qm', 'fixture'); return git('rev-parse', 'HEAD'); };
-  const run = (base: string, head: string, mode: string) => {
+  const run = (base: string, head: string) => {
     const output = join(dir, 'outputs');
     writeFileSync(output, '');
-    const stdout = execFileSync(process.execPath, [script, base, head, mode], {
+    const stdout = execFileSync(process.execPath, [script, base, head], {
       cwd: dir, encoding: 'utf8', env: { ...process.env, GITHUB_OUTPUT: output },
     });
     assert.equal(stdout, readFileSync(output, 'utf8'));
@@ -82,28 +82,27 @@ test('CI entry point handles PR base divergence, deletions, renames and full val
     git('switch', '-q', 'main');
     writeFileSync(join(dir, 'package.json'), '{}');
     const advancedBase = commit();
-    assert.deepEqual(run(advancedBase, docs, 'selected'), none, 'base-only changes are excluded');
+    assert.deepEqual(run(advancedBase, docs), none, 'base-only changes are excluded');
     git('switch', '-q', 'docs');
     git('mv', 'play.html', 'old-play.html');
     const renamed = commit();
-    assert.deepEqual(run(docs, renamed, 'selected'), { ...none, distribution: true }, 'old path of rename is included');
+    assert.deepEqual(run(docs, renamed), { ...none, distribution: true }, 'old path of rename is included');
     git('switch', '-q', 'main');
     git('rm', 'package.json');
     const deleted = commit();
-    assert.deepEqual(run(advancedBase, deleted, 'selected'), all, 'deleted paths are included');
-    assert.deepEqual(run('', docs, 'full'), all, 'full validation runs everything on a docs-only revision');
+    assert.deepEqual(run(advancedBase, deleted), all, 'deleted paths are included');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('required aggregate rejects failed selection and selected jobs, including cancelled runs', () => {
+test('required aggregate rejects malformed selections and unsuccessful checks', () => {
   const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
   const source = workflow.match(/python3 - <<'PY'\n([\s\S]*?)          PY/)?.[1];
   assert.ok(source);
   const script = source.split('\n').map(line => line.slice(10)).join('\n');
   const results = {
-    changes: { result: 'success', outputs: { ...Object.fromEntries(Object.entries(game).map(([k, v]) => [k, String(v)])) } },
+    changes: { result: 'success', outputs: { types: 'true', simulation: 'true', browser: 'true', distribution: 'true', deployment: 'true', uploader_result: 'success' } },
     types: { result: 'success' }, simulation: { result: 'success' },
     browser: { result: 'success' }, distribution: { result: 'success' },
   };
@@ -116,34 +115,60 @@ test('required aggregate rejects failed selection and selected jobs, including c
   results.browser.result = 'success';
   Reflect.deleteProperty(results.changes.outputs, 'browser');
   assert.notEqual(check(), 0, 'an invalid selection cannot bless a job');
+  results.changes.outputs.browser = 'true';
+  assert.equal(check(), 0, 'restored valid selection');
   results.changes.result = 'failure';
   assert.notEqual(check(), 0, 'selection or tooling test failure always fails the aggregate');
+  results.changes.result = 'success';
+
+  const outputs = results.changes.outputs;
+  outputs.uploader_result = 'skipped';
+  assert.notEqual(check(), 0, 'a selected uploader test must succeed');
+  outputs.deployment = 'false';
+  assert.equal(check(), 0, 'an unselected uploader test may be skipped');
+  outputs.deployment = 'invalid';
+  assert.notEqual(check(), 0, 'an invalid uploader selection fails the aggregate');
+  Reflect.deleteProperty(outputs, 'deployment');
+  assert.notEqual(check(), 0, 'a missing uploader selection fails the aggregate');
 });
 
 test('PR selection requires an active merge queue; merge groups and pushes always run every check', { skip: process.platform === 'win32' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-queue-'));
   const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
   assert.match(workflow, /^  merge_group:\n    types: \[checks_requested\]$/m);
-  const source = workflow.match(/- name: Select affected surfaces[\s\S]*?run: \|\n((?:          .*\n)+)/)?.[1];
-  assert.ok(source);
-  const command = source.split('\n').map(line => line.slice(10)).join('\n');
+  assert.match(workflow, /id: queue\n        if: github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == 'main'/);
+  const step = (name: string) => {
+    const match = workflow.match(new RegExp(`- name: ${name}\\n([\\s\\S]*?)        run: \\|\\n((?:          .*\\n)+)`));
+    assert.ok(match, name);
+    return { configuration: match[1], command: match[2].split('\n').map(line => line.slice(10)).join('\n') };
+  };
+  const lookup = step('Detect the main merge queue');
+  const selection = step('Select checks to run');
+  assert.match(lookup.configuration, /GH_TOKEN:/);
+  assert.match(selection.configuration, /QUEUE_ACTIVE: \$\{\{ steps\.queue\.outputs\.active \}\}/);
+  assert.doesNotMatch(selection.configuration, /GH_TOKEN|github\.token/);
   try {
     writeFileSync(join(dir, 'gh'), '#!/bin/sh\n[ "$1" = api ] && [ "$2" = "repos/fixture/game/rules/branches/main" ] || exit 2\n[ "$API_RESULT" != error ] || exit 1\nprintf "%s\\n" "$API_RESULT"\n', { mode: 0o755 });
-    writeFileSync(join(dir, 'node'), '#!/bin/sh\nprintf "%s\\n" "$4"\n', { mode: 0o755 });
-    const mode = (event: string, result: string, branch = 'main') => {
-      const run = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], {
+    writeFileSync(join(dir, 'node'), '#!/bin/sh\n[ "$1 $2 $3" = "scripts/ci.ts base head" ] || exit 2\nprintf "%s=false\\n" types simulation browser distribution deployment > "$GITHUB_OUTPUT"\n', { mode: 0o755 });
+    const output = join(dir, 'outputs');
+    const run = (command: string, env: Record<string, string>) => {
+      writeFileSync(output, '');
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], {
         cwd: dir, encoding: 'utf8',
-        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, GH_REPO: 'fixture/game', EVENT_NAME: event, BASE_REF: branch, API_RESULT: result },
+        env: { PATH: `${dir}:${process.env.PATH}`, GITHUB_OUTPUT: output, ...env },
       });
-      assert.equal(run.status, 0, run.stderr);
-      return run.stdout.trim().split('\n').at(-1);
+      assert.equal(result.status, 0, result.stderr);
+      return readFileSync(output, 'utf8').trim();
     };
-    assert.equal(mode('pull_request', 'true'), 'selected');
-    assert.equal(mode('pull_request', 'false'), 'full');
-    assert.equal(mode('pull_request', 'error'), 'full');
-    assert.equal(mode('pull_request', 'true', 'topic'), 'full');
-    assert.equal(mode('merge_group', 'true'), 'full');
-    assert.equal(mode('push', 'true'), 'full');
+    const select = (queue: string) => run(selection.command, {
+      QUEUE_ACTIVE: queue.replace(/^active=/, ''), BASE_SHA: 'base', HEAD_SHA: 'head',
+    });
+    const outputFor = (checks: typeof all) => Object.entries(checks).map(([name, enabled]) => `${name}=${enabled}`).join('\n');
+    for (const rules of ['merge_queue', '', 'error']) {
+      const queue = run(lookup.command, { GH_REPO: 'fixture/game', API_RESULT: rules });
+      assert.equal(select(queue), outputFor(rules === 'merge_queue' ? none : all), rules || 'no rule');
+    }
+    assert.equal(select(''), outputFor(all), 'events that skip lookup run every check');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

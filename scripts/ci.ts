@@ -16,18 +16,15 @@ export function checksFor(paths: string[]) {
 
 // No API token or dependencies: works with fork PRs, deletions and large diffs.
 // Disabling rename detection includes both old and new paths when a file moves.
-export function changedPaths(base: string, head: string, pullRequest: boolean): string[] {
-  const start = pullRequest
-    ? execFileSync('git', ['merge-base', base, head], { encoding: 'utf8' }).trim()
-    : base;
+function changedPaths(base: string, head: string): string[] {
+  const start = execFileSync('git', ['merge-base', base, head], { encoding: 'utf8' }).trim();
   return execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', start, head], { encoding: 'utf8' }).split('\0').filter(Boolean);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [base, head, mode] = process.argv.slice(2);
-  if (!head || (mode !== 'full' && mode !== 'selected')) throw new Error('Expected base SHA, head SHA, and validation mode');
-  if (mode === 'selected' && !base) throw new Error('Selected checks require a base SHA');
-  const checks = mode === 'full' ? checksFor(['package.json']) : checksFor(changedPaths(base, head, true));
+  const [base, head] = process.argv.slice(2);
+  if (!base || !head) throw new Error('Selected checks require a base SHA and head SHA');
+  const checks = checksFor(changedPaths(base, head));
   const output = Object.entries(checks).map(([name, run]) => `${name}=${run}`).join('\n') + '\n';
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, output);
   process.stdout.write(output);
