@@ -105,7 +105,7 @@ The TypeScript job also runs the Landmines test lint rules.
 
 | Changed surface | Checks |
 | --- | --- |
-| Documentation or screenshots | Routing, owner-command authorization, and aggregate only |
+| Documentation or screenshots | Routing and owner-command authorization |
 | Engine, levels, or shared game types | Types, simulation, browser controls, distribution |
 | UI, renderer, audio, or Vite config | Types, browser controls, distribution |
 | CSS, entry HTML, favicon, or public assets | Browser controls, distribution |
@@ -120,7 +120,7 @@ The TypeScript job also runs the Landmines test lint rules.
 | Oxlint configuration or otherwise unrouted JS/TS files | Types and test lint |
 | Package manifests, TypeScript config, or check workflow | All checks |
 
-Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. Browser jobs install the pinned Playwright Chromium and retain failure artifacts for seven days. The distribution job rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
+Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job installs the pinned Playwright Chromium shell once and retains browser failure artifacts for seven days. It runs independent checks in parallel, rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
 
 Require the stable **Game checks** status for `main`. In a public organization repository, add the merge queue to the same active ruleset with no bypass actors. The queue validates the combined commit against the latest base before it can merge. An unavailable rules lookup results in full PR validation. GitHub-managed CodeQL and third-party integrations have their own scheduling.
 

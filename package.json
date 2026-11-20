@@ -12,7 +12,7 @@
     "test": "node --test tests/engine.test.ts tests/ci.test.ts tests/deploy.test.ts scripts/pullfrog-command-check.test.ts",
     "test:browser": "playwright test",
     "lint": "oxlint .",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run test:browser && npm run test:distribution",
+    "check": "node scripts/verify.ts",
     "typecheck": "tsc --noEmit",
     "test:distribution": "playwright test --config playwright.distribution.config.ts"
   },
