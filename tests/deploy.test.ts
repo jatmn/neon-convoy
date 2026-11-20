@@ -18,7 +18,8 @@ void test('deployment uploads only built files, assets before HTML, without an a
   const request: typeof fetch = async (input, init) => {
     assert.ok(init);
     calls.push({
-      url: input instanceof Request ? input.url : input.toString(), method: init.method!,
+      url: input instanceof Request ? input.url : input.toString(),
+      method: init.method!,
       key: new Headers(init.headers).get('AccessKey')!,
       body: typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as Uint8Array),
     });
@@ -35,29 +36,51 @@ void test('deployment uploads only built files, assets before HTML, without an a
     process.chdir(dir);
     await deploy(env, request);
     assert.deepEqual(calls, [
-      { url: 'https://ny.storage.bunnycdn.com/neon-convoy/assets/game%20%231.js', method: 'PUT', key: 'storage-secret', body: 'game bytes' },
-      { url: 'https://ny.storage.bunnycdn.com/neon-convoy/index.html', method: 'PUT', key: 'storage-secret', body: '<html>game</html>' },
+      {
+        url: 'https://ny.storage.bunnycdn.com/neon-convoy/assets/game%20%231.js',
+        method: 'PUT',
+        key: 'storage-secret',
+        body: 'game bytes',
+      },
+      {
+        url: 'https://ny.storage.bunnycdn.com/neon-convoy/index.html',
+        method: 'PUT',
+        key: 'storage-secret',
+        body: '<html>game</html>',
+      },
     ]);
 
     for (const failedCall of [1, 2]) {
       let count = 0;
-      await assert.rejects(deploy(env, async () => {
-        count++;
-        return new Response(null, { status: count === failedCall ? 401 : 201 });
-      }), /HTTP 401/);
+      await assert.rejects(
+        deploy(env, async () => {
+          count++;
+          return new Response(null, { status: count === failedCall ? 401 : 201 });
+        }),
+        /HTTP 401/,
+      );
       assert.equal(count, failedCall, 'stop immediately after failed uploads');
     }
     let count = 0;
-    await assert.rejects(deploy(env, async () => { count++; throw new Error('network failure'); }), /network failure/);
+    await assert.rejects(
+      deploy(env, async () => {
+        count++;
+        throw new Error('network failure');
+      }),
+      /network failure/,
+    );
     assert.equal(count, 1);
     for (const invalid of [
       { BUNNY_STORAGE_PASSWORD: '' },
       { BUNNY_STORAGE_HOST: 'storage.bunnycdn.com.attacker.invalid' },
       { BUNNY_STORAGE_ZONE: '../another-zone' },
     ]) {
-      await assert.rejects(deploy({ ...env, ...invalid }, async () => {
-        assert.fail('invalid configuration must not send credentials');
-      }), /Missing BUNNY_STORAGE_PASSWORD|Expected a Bunny storage hostname|Invalid storage zone name/);
+      await assert.rejects(
+        deploy({ ...env, ...invalid }, async () => {
+          assert.fail('invalid configuration must not send credentials');
+        }),
+        /Missing BUNNY_STORAGE_PASSWORD|Expected a Bunny storage hostname|Invalid storage zone name/,
+      );
     }
     await rm(join(dir, 'dist/index.html'));
     await assert.rejects(deploy(env, request), /Build dist\/index.html/);

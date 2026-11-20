@@ -3,14 +3,33 @@ import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 export function checksFor(paths: string[]) {
-  const shared = paths.some(path => /^(package\.json|bun\.lock|bunfig\.toml|tsconfig[^/]*\.json|scripts\/install-bun\.sh|scripts\/verify\.ts|\.github\/workflows\/check\.yml)$/.test(path));
-  const app = paths.some(path => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.ts)$/.test(path));
+  const shared = paths.some((path) =>
+    /^(package\.json|bun\.lock|bunfig\.toml|tsconfig[^/]*\.json|scripts\/install-bun\.sh|scripts\/verify\.ts|\.github\/workflows\/check\.yml)$/.test(
+      path,
+    ),
+  );
+  const app = paths.some(
+    (path) => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.ts)$/.test(path),
+  );
   return {
-    types: shared || paths.some(path => /\.([cm]?ts|tsx)$/.test(path)),
-    simulation: shared || paths.some(path => /^(src\/(engine|levels|types)\.ts|tests\/engine\.test\.ts)$/.test(path)),
-    browser: shared || app || paths.some(path => /^(tests\/browser\.spec\.ts|playwright\.config\.ts)$/.test(path)),
-    distribution: shared || app || paths.some(path => /^(scripts\/standalone\.ts|playwright\.distribution\.config\.ts|LICENSE|play\.html|tests\/distribution\.spec\.ts|playwright\.config\.ts)$/.test(path)),
-    deployment: shared || paths.some(path => /^(scripts\/deploy\.ts|tests\/deploy\.test\.ts|\.github\/workflows\/deploy\.yml)$/.test(path)),
+    types: shared || paths.some((path) => /\.([cm]?ts|tsx)$/.test(path)),
+    simulation:
+      shared || paths.some((path) => /^(src\/(engine|levels|types)\.ts|tests\/engine\.test\.ts)$/.test(path)),
+    browser:
+      shared || app || paths.some((path) => /^(tests\/browser\.spec\.ts|playwright\.config\.ts)$/.test(path)),
+    distribution:
+      shared ||
+      app ||
+      paths.some((path) =>
+        /^(scripts\/standalone\.ts|playwright\.distribution\.config\.ts|LICENSE|play\.html|tests\/distribution\.spec\.ts|playwright\.config\.ts)$/.test(
+          path,
+        ),
+      ),
+    deployment:
+      shared ||
+      paths.some((path) =>
+        /^(scripts\/deploy\.ts|tests\/deploy\.test\.ts|\.github\/workflows\/deploy\.yml)$/.test(path),
+      ),
   };
 }
 
@@ -20,7 +39,9 @@ export function changedPaths(base: string, head: string, pullRequest: boolean): 
   const start = pullRequest
     ? execFileSync('git', ['merge-base', base, head], { encoding: 'utf8' }).trim()
     : base;
-  return execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', start, head], { encoding: 'utf8' }).split('\0').filter(Boolean);
+  return execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', start, head], { encoding: 'utf8' })
+    .split('\0')
+    .filter(Boolean);
 }
 
 export function validationChecks(mode: string, base: string, head: string) {
@@ -31,8 +52,10 @@ export function validationChecks(mode: string, base: string, head: string) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [base, head, mode] = process.argv.slice(2);
-  const output = Object.entries(validationChecks(mode, base, head))
-    .map(([name, run]) => `${name}=${run}`).join('\n') + '\n';
+  const output =
+    Object.entries(validationChecks(mode, base, head))
+      .map(([name, run]) => `${name}=${run}`)
+      .join('\n') + '\n';
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, output);
   process.stdout.write(output);
 }

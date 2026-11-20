@@ -6,12 +6,12 @@ async function clickWorld(page: Page, x: number, y: number) {
   await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Battlefield has no bounding box');
-  await canvas.click({ position: { x: x / 1200 * box.width, y: y / 600 * box.height } });
+  await canvas.click({ position: { x: (x / 1200) * box.width, y: (y / 600) * box.height } });
 }
 
 test('campaign loads ten playable sectors with a rendered battlefield', async ({ page }) => {
   const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: 'First Light' })).toBeVisible();
@@ -138,7 +138,11 @@ test('a successful rescue saves progress and opens the next sector', async ({ pa
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Convoy extracted.' })).toBeVisible();
   await expect(page.locator('#campaign-complete')).toContainText('1 / 10');
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('neon-convoy-progress') || '{}')['1'].completed)).toBe(true);
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem('neon-convoy-progress') || '{}')['1'].completed,
+    ),
+  ).toBe(true);
   await page.getByRole('button', { name: /Next sector/ }).click();
   await expect(page.getByRole('heading', { name: 'Skybridge' })).toBeVisible();
   await expect(page.locator('#start-banner')).toBeVisible();

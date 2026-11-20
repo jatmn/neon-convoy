@@ -2,3 +2,8 @@
 isolate = true
 randomize = true
 pathIgnorePatterns = ["tests/browser.spec.ts", "tests/distribution.spec.ts"]
+
+[fmt]
+printWidth = 110
+singleQuote = true
+ignorePatterns = ["play.html"]

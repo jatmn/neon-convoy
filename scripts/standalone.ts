@@ -11,8 +11,14 @@ if (!jsPath || !cssPath) throw new Error('Expected a single Vite JS and CSS bund
 const js = await readFile(`dist/${jsPath.replace(/^\.\//, '')}`, 'utf8');
 const css = await readFile(`dist/${cssPath.replace(/^\.\//, '')}`, 'utf8');
 const favicon = await readFile('favicon.svg', 'utf8');
-html = html.replace(/<script[^>]+src="[^"]+"[^>]*><\/script>/, () => `<script type="module">${js.replace(/<\/script/gi, '<\\/script')}</script>`);
+html = html.replace(
+  /<script[^>]+src="[^"]+"[^>]*><\/script>/,
+  () => `<script type="module">${js.replace(/<\/script/gi, '<\\/script')}</script>`,
+);
 html = html.replace(/<link[^>]+rel="stylesheet"[^>]+href="[^"]+"[^>]*>/, () => `<style>${css}</style>`);
-html = html.replace(/(<link[^>]+rel="icon"[^>]+href=")[^"]+("[^>]*>)/, (_: string, a: string, b: string) => a + `data:image/svg+xml,${encodeURIComponent(favicon)}` + b);
+html = html.replace(
+  /(<link[^>]+rel="icon"[^>]+href=")[^"]+("[^>]*>)/,
+  (_: string, a: string, b: string) => a + `data:image/svg+xml,${encodeURIComponent(favicon)}` + b,
+);
 await writeFile('play.html', html);
 console.log('Created play.html — download and open in a browser to play.');

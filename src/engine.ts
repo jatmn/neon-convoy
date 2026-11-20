@@ -33,7 +33,9 @@ export class Terrain {
     return this.cells[cy * this.width + cx];
   }
 
-  solid(x: number, y: number) { return this.get(x, y) !== 0; }
+  solid(x: number, y: number) {
+    return this.get(x, y) !== 0;
+  }
 
   fill(x: number, y: number, w: number, h: number, type: number, initializing = false) {
     const left = Math.max(0, Math.floor(x / CELL_SIZE));
@@ -41,12 +43,16 @@ export class Terrain {
     const right = Math.min(this.width, Math.ceil((x + w) / CELL_SIZE));
     const bottom = Math.min(this.height, Math.ceil((y + h) / CELL_SIZE));
     let changed = false;
-    for (let cy = top; cy < bottom; cy++) for (let cx = left; cx < right; cx++) {
-      const index = cy * this.width + cx;
-      if (type === 0 && this.cells[index] === 2) continue;
-      if (type === 3 && this.cells[index] !== 0) continue;
-      if (this.cells[index] !== type) { this.cells[index] = type; changed = true; }
-    }
+    for (let cy = top; cy < bottom; cy++)
+      for (let cx = left; cx < right; cx++) {
+        const index = cy * this.width + cx;
+        if (type === 0 && this.cells[index] === 2) continue;
+        if (type === 3 && this.cells[index] !== 0) continue;
+        if (this.cells[index] !== type) {
+          this.cells[index] = type;
+          changed = true;
+        }
+      }
     if (changed && !initializing) this.revision++;
     return changed;
   }
@@ -57,16 +63,17 @@ export class Terrain {
     const top = Math.max(0, Math.floor((y - radius) / CELL_SIZE));
     const bottom = Math.min(this.height - 1, Math.floor((y + radius) / CELL_SIZE));
     let changed = false;
-    for (let cy = top; cy <= bottom; cy++) for (let cx = left; cx <= right; cx++) {
-      const px = cx * CELL_SIZE + CELL_SIZE / 2;
-      const py = cy * CELL_SIZE + CELL_SIZE / 2;
-      if (py >= maxY || (px - x) ** 2 + (py - y) ** 2 > radius ** 2) continue;
-      const index = cy * this.width + cx;
-      if (mode === 0 && this.cells[index] === 1 || mode > 0 && this.cells[index] === 0) {
-        this.cells[index] = mode;
-        changed = true;
+    for (let cy = top; cy <= bottom; cy++)
+      for (let cx = left; cx <= right; cx++) {
+        const px = cx * CELL_SIZE + CELL_SIZE / 2;
+        const py = cy * CELL_SIZE + CELL_SIZE / 2;
+        if (py >= maxY || (px - x) ** 2 + (py - y) ** 2 > radius ** 2) continue;
+        const index = cy * this.width + cx;
+        if ((mode === 0 && this.cells[index] === 1) || (mode > 0 && this.cells[index] === 0)) {
+          this.cells[index] = mode;
+          changed = true;
+        }
       }
-    }
     if (changed) this.revision++;
     return changed;
   }
@@ -93,7 +100,10 @@ export class Game {
   _accumulator!: number;
   _spawnClock!: number;
   _nextId!: number;
-  constructor(level: Level) { this.level = level; this.reset(); }
+  constructor(level: Level) {
+    this.level = level;
+    this.reset();
+  }
 
   reset() {
     this.terrain = new Terrain(this.level.terrain);
@@ -117,11 +127,18 @@ export class Game {
     return this;
   }
 
-  get remaining() { return Math.max(0, this.level.timeLimit - this.elapsed); }
-  get total() { return this.level.total; }
+  get remaining() {
+    return Math.max(0, this.level.timeLimit - this.elapsed);
+  }
+  get total() {
+    return this.level.total;
+  }
 
   start() {
-    if (this.status === 'ready') { this.status = 'running'; this._spawn(); }
+    if (this.status === 'ready') {
+      this.status = 'running';
+      this._spawn();
+    }
     return this.status === 'running';
   }
 
@@ -136,13 +153,16 @@ export class Game {
     for (const drone of this.drones) {
       if (!drone.alive) continue;
       const d = Math.hypot(drone.x - x, drone.y - 9 - y);
-      if (d < 20 && d < distance) { nearest = drone; distance = d; }
+      if (d < 20 && d < distance) {
+        nearest = drone;
+        distance = d;
+      }
     }
     return nearest;
   }
 
   assign(droneId: number, tool: Tool) {
-    const drone = this.drones.find(d => d.id === droneId && d.alive);
+    const drone = this.drones.find((d) => d.id === droneId && d.alive);
     if (!drone || !TOOL_NAMES.includes(tool)) return false;
     if (tool === 'block' && drone.state === 'block') {
       drone.state = 'walk';
@@ -158,7 +178,15 @@ export class Game {
       return true;
     }
     if (tool === 'missile') {
-      const projectile = { x: drone.x + drone.dir * 12, y: drone.y - 12, vx: drone.dir * 260, vy: 0, life: 2, kind: 'missile', owner: drone.id };
+      const projectile = {
+        x: drone.x + drone.dir * 12,
+        y: drone.y - 12,
+        vx: drone.dir * 260,
+        vy: 0,
+        life: 2,
+        kind: 'missile',
+        owner: drone.id,
+      };
       this.projectiles.push(projectile);
       drone.state = 'missile';
       drone.actionTime = 0.45;
@@ -172,7 +200,16 @@ export class Game {
   }
 
   editTerrain(x: number, y: number, mode: string | number, radius = 20) {
-    const type = mode === 'erase' || mode === 0 ? 0 : mode === 'steel' || mode === 2 ? 2 : mode === 'build' || mode === 'rock' || mode === 1 ? 1 : mode === 3 ? 3 : null;
+    const type =
+      mode === 'erase' || mode === 0
+        ? 0
+        : mode === 'steel' || mode === 2
+          ? 2
+          : mode === 'build' || mode === 'rock' || mode === 1
+            ? 1
+            : mode === 3
+              ? 3
+              : null;
     if (type === null) return false;
     const changed = this.terrain.circle(x, y, Math.max(1, radius), type);
     if (changed) this.sandbox = true;
@@ -181,10 +218,26 @@ export class Game {
 
   snapshot() {
     return {
-      status: this.status, elapsed: this.elapsed, remaining: this.remaining, spawned: this.spawned,
-      saved: this.saved, lost: this.lost, score: this.score, paused: this.paused, speed: this.speed,
-      sandbox: this.sandbox, inventory: { ...this.inventory },
-      drones: this.drones.map(({ id, x, y, dir, state, boosted, alive }) => ({ id, x, y, dir, state, boosted, alive })),
+      status: this.status,
+      elapsed: this.elapsed,
+      remaining: this.remaining,
+      spawned: this.spawned,
+      saved: this.saved,
+      lost: this.lost,
+      score: this.score,
+      paused: this.paused,
+      speed: this.speed,
+      sandbox: this.sandbox,
+      inventory: { ...this.inventory },
+      drones: this.drones.map(({ id, x, y, dir, state, boosted, alive }) => ({
+        id,
+        x,
+        y,
+        dir,
+        state,
+        boosted,
+        alive,
+      })),
       terrainRevision: this.terrain.revision,
     };
   }
@@ -201,7 +254,19 @@ export class Game {
   _spawn() {
     if (this.spawned >= this.level.total) return;
     const { x, y, dir } = this.level.spawn;
-    this.drones.push({ id: this._nextId++, x, y, dir: dir || 1, state: 'walk', anim: 0, vy: 0, fallDistance: 0, boosted: false, alive: true, actionTime: 0 });
+    this.drones.push({
+      id: this._nextId++,
+      x,
+      y,
+      dir: dir || 1,
+      state: 'walk',
+      anim: 0,
+      vy: 0,
+      fallDistance: 0,
+      boosted: false,
+      alive: true,
+      actionTime: 0,
+    });
     this.spawned++;
   }
 
@@ -215,26 +280,36 @@ export class Game {
     for (const projectile of this.projectiles) {
       projectile.x += projectile.vx * dt;
       projectile.life -= dt;
-      if (this.terrain.solid(projectile.x, projectile.y) || projectile.life <= 0 || projectile.x < 0 || projectile.x >= WORLD_WIDTH) {
+      if (
+        this.terrain.solid(projectile.x, projectile.y) ||
+        projectile.life <= 0 ||
+        projectile.x < 0 ||
+        projectile.x >= WORLD_WIDTH
+      ) {
         this._explode(projectile.x, projectile.y, 58);
         projectile.life = -1;
       }
     }
-    this.projectiles = this.projectiles.filter(p => p.life > 0);
+    this.projectiles = this.projectiles.filter((p) => p.life > 0);
     for (const drone of this.drones) if (drone.alive) this._updateDrone(drone, dt);
     for (const effect of this.effects) effect.life -= dt;
-    this.effects = this.effects.filter(e => e.life > 0);
+    this.effects = this.effects.filter((e) => e.life > 0);
     for (const particle of this.particles) {
-      particle.x += particle.vx * dt; particle.y += particle.vy * dt;
-      particle.vy += 110 * dt; particle.life -= dt;
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      particle.vy += 110 * dt;
+      particle.life -= dt;
     }
-    this.particles = this.particles.filter(p => p.life > 0);
+    this.particles = this.particles.filter((p) => p.life > 0);
     this.score = this.sandbox ? 0 : Math.max(0, this.saved * 100 - this.lost * 25);
-    const convoyResolved = this.spawned === this.level.total && this.drones.every(d => !d.alive || d.state === 'block');
+    const convoyResolved =
+      this.spawned === this.level.total && this.drones.every((d) => !d.alive || d.state === 'block');
     if (this.saved >= this.level.required && (convoyResolved || this.remaining <= 0)) {
       this.status = 'won';
       const spareTools = TOOL_NAMES.reduce((sum, tool) => sum + (this.inventory[tool] ?? 0), 0);
-      this.score = this.sandbox ? 0 : Math.max(0, Math.round(this.saved * 100 + this.remaining * 5 + spareTools * 12 - this.lost * 25));
+      this.score = this.sandbox
+        ? 0
+        : Math.max(0, Math.round(this.saved * 100 + this.remaining * 5 + spareTools * 12 - this.lost * 25));
     } else if (this.remaining <= 0 || this.lost > this.level.total - this.level.required || convoyResolved) {
       this.status = 'lost';
       this.score = 0;
@@ -271,7 +346,15 @@ export class Game {
     if (d.state === 'drill') {
       this._vertical(d, dt);
     } else {
-      const blocking = this.drones.find(other => other !== d && other.alive && other.state === 'block' && Math.abs(other.y - d.y) < 22 && (other.x - d.x) * d.dir > 0 && Math.abs(other.x - d.x) < 14);
+      const blocking = this.drones.find(
+        (other) =>
+          other !== d &&
+          other.alive &&
+          other.state === 'block' &&
+          Math.abs(other.y - d.y) < 22 &&
+          (other.x - d.x) * d.dir > 0 &&
+          Math.abs(other.x - d.x) < 14,
+      );
       if (blocking) d.dir *= -1;
       else if (d.state !== 'fall' && this.terrain.get(d.x + d.dir * 9, d.y - 2) === 3) {
         const ahead = d.x + d.dir * 9;
@@ -290,11 +373,18 @@ export class Game {
     if (!d.alive) return;
     const exit = this.level.exit;
     if (Math.abs(d.x - exit.x) < 20 && Math.abs(d.y - exit.y) < 24) {
-      d.alive = false; d.state = 'saved'; this.saved++;
+      d.alive = false;
+      d.state = 'saved';
+      this.saved++;
       this._effect(d.x, d.y - 10, 26, 'exit', 0.6);
       return;
     }
-    if (this.level.hazards.some(h => d.x + 5 > h.x && d.x - 5 < h.x + h.w && d.y > h.y && d.y - 16 < h.y + h.h)) this._kill(d);
+    if (
+      this.level.hazards.some(
+        (h) => d.x + 5 > h.x && d.x - 5 < h.x + h.w && d.y > h.y && d.y - 16 < h.y + h.h,
+      )
+    )
+      this._kill(d);
     if (d.x < 0 || d.x >= WORLD_WIDTH || d.y > WORLD_HEIGHT + 10) this._kill(d);
   }
 
@@ -305,25 +395,35 @@ export class Game {
       const nextY = d.y + d.vy * dt;
       let landing = null;
       for (let y = Math.floor(d.y + 1); y <= Math.ceil(nextY + 2); y++) {
-        if (this.terrain.solid(d.x - 4, y) || this.terrain.solid(d.x + 4, y)) { landing = Math.floor(y / CELL_SIZE) * CELL_SIZE; break; }
+        if (this.terrain.solid(d.x - 4, y) || this.terrain.solid(d.x + 4, y)) {
+          landing = Math.floor(y / CELL_SIZE) * CELL_SIZE;
+          break;
+        }
       }
       if (landing !== null) {
         d.fallDistance += landing - d.y;
         d.y = landing;
         if (d.fallDistance > MAX_SAFE_FALL && !d.boosted) this._kill(d);
-        d.vy = 0; d.fallDistance = 0;
+        d.vy = 0;
+        d.fallDistance = 0;
         if (d.state === 'fall') d.state = 'walk';
       } else {
         d.fallDistance += nextY - d.y;
         d.y = nextY;
         if (d.state === 'walk') d.state = 'fall';
       }
-    } else { d.vy = 0; d.fallDistance = 0; if (d.state === 'fall') d.state = 'walk'; }
+    } else {
+      d.vy = 0;
+      d.fallDistance = 0;
+      if (d.state === 'fall') d.state = 'walk';
+    }
   }
 
   _kill(d: Drone) {
     if (!d.alive) return;
-    d.alive = false; d.state = 'dead'; this.lost++;
+    d.alive = false;
+    d.state = 'dead';
+    this.lost++;
     this._effect(d.x, d.y - 10, 20, 'death', 0.45);
   }
 
@@ -332,12 +432,23 @@ export class Game {
     this.terrain.circle(x, y, radius, 0, y + 12);
     this._effect(x, y, radius, 'blast', 0.55);
     for (let i = 0; i < 16; i++) {
-      const angle = i * Math.PI * 2 / 16;
-      this.particles.push({ x, y, vx: Math.cos(angle) * 65, vy: Math.sin(angle) * 65, life: 0.5, maxLife: 0.5, color: '#ffae49', size: 3 });
+      const angle = (i * Math.PI * 2) / 16;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * 65,
+        vy: Math.sin(angle) * 65,
+        life: 0.5,
+        maxLife: 0.5,
+        color: '#ffae49',
+        size: 3,
+      });
     }
   }
 
-  _effect(x: number, y: number, radius: number, kind: string, life: number) { this.effects.push({ x, y, radius, kind, life, maxLife: life }); }
+  _effect(x: number, y: number, radius: number, kind: string, life: number) {
+    this.effects.push({ x, y, radius, kind, life, maxLife: life });
+  }
 }
 
 export default Game;

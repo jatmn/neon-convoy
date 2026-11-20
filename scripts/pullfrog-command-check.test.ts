@@ -7,7 +7,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const EVENT = {
-  action: 'created', repository: { full_name: 'jatmn/neon-convoy' }, sender: { id: 12479882 },
+  action: 'created',
+  repository: { full_name: 'jatmn/neon-convoy' },
+  sender: { id: 12479882 },
   comment: { id: 123, user: { id: 12479882 }, body: '@pullfrog review this PR' },
   issue: { number: 7, pull_request: { url: 'https://api.github.com/repos/jatmn/neon-convoy/pulls/7' } },
 };
@@ -18,11 +20,23 @@ function run(event: typeof EVENT, overrides: NodeJS.ProcessEnv = {}) {
     const eventPath = join(directory, 'event.json');
     const outputPath = join(directory, 'output');
     writeFileSync(eventPath, JSON.stringify(event));
-    const result = spawnSync(process.execPath, [fileURLToPath(new URL('./pullfrog-command-check.ts', import.meta.url))], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: 'issue_comment',
-        GITHUB_ACTOR: 'jatmn', GITHUB_TRIGGERING_ACTOR: 'jatmn', GITHUB_RUN_ATTEMPT: '1',
-        GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, ...overrides },
-    });
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL('./pullfrog-command-check.ts', import.meta.url))],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          GITHUB_EVENT_NAME: 'issue_comment',
+          GITHUB_ACTOR: 'jatmn',
+          GITHUB_TRIGGERING_ACTOR: 'jatmn',
+          GITHUB_RUN_ATTEMPT: '1',
+          GITHUB_EVENT_PATH: eventPath,
+          GITHUB_OUTPUT: outputPath,
+          ...overrides,
+        },
+      },
+    );
     return { ...result, output: existsSync(outputPath) ? readFileSync(outputPath, 'utf8') : '', eventPath };
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -48,22 +62,31 @@ void test('owner PR and issue commands preserve identity and instruction without
     assert.equal(payload.event.comment_id, 123);
     assert.equal(payload.event.is_pr ?? false, isPr);
     assert.ok(payload.prompt.includes(event.comment.body));
-    assert.ok(payload.prompt.includes(`https://github.com/jatmn/neon-convoy/${isPr ? 'pull' : 'issues'}/7#issuecomment-123`));
+    assert.ok(
+      payload.prompt.includes(
+        `https://github.com/jatmn/neon-convoy/${isPr ? 'pull' : 'issues'}/7#issuecomment-123`,
+      ),
+    );
   }
 });
 
 void test('other actors, reruns and unrelated events cannot authorize the agent', () => {
   for (const overrides of [
-    { GITHUB_ACTOR: 'contributor' }, { GITHUB_TRIGGERING_ACTOR: 'contributor' },
-    { GITHUB_RUN_ATTEMPT: '2' }, { GITHUB_EVENT_NAME: 'workflow_dispatch' },
-    { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_EVENT_NAME: 'pull_request_review_comment' },
+    { GITHUB_ACTOR: 'contributor' },
+    { GITHUB_TRIGGERING_ACTOR: 'contributor' },
+    { GITHUB_RUN_ATTEMPT: '2' },
+    { GITHUB_EVENT_NAME: 'workflow_dispatch' },
+    { GITHUB_EVENT_NAME: 'pull_request' },
+    { GITHUB_EVENT_NAME: 'pull_request_review_comment' },
   ]) {
     const result = run(EVENT, overrides);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.output, '');
   }
   for (const overrides of [
-    { action: 'edited' }, { sender: { id: 999 } }, { repository: { full_name: 'someone/else' } },
+    { action: 'edited' },
+    { sender: { id: 999 } },
+    { repository: { full_name: 'someone/else' } },
     { comment: { ...EVENT.comment, user: { id: 999 } } },
   ]) {
     const result = run({ ...EVENT, ...overrides });
@@ -73,9 +96,18 @@ void test('other actors, reruns and unrelated events cannot authorize the agent'
 });
 
 void test('passive, bare, quoted and invisible commands are rejected', () => {
-  for (const body of ['@pullfrog', '@pullfrog  ', 'please ask @pullfrog review',
-    '> @pullfrog review', '    @pullfrog review', '```\n@pullfrog review\n```',
-    '\n@pullfrog review', '@pullfrog\nreview', '@pullfrog \u200b', '@pullfrog !!!']) {
+  for (const body of [
+    '@pullfrog',
+    '@pullfrog  ',
+    'please ask @pullfrog review',
+    '> @pullfrog review',
+    '    @pullfrog review',
+    '```\n@pullfrog review\n```',
+    '\n@pullfrog review',
+    '@pullfrog\nreview',
+    '@pullfrog \u200b',
+    '@pullfrog !!!',
+  ]) {
     const result = run({ ...EVENT, comment: { ...EVENT.comment, body } });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.output, '', body);
@@ -84,7 +116,10 @@ void test('passive, bare, quoted and invisible commands are rejected', () => {
 
 void test('invisible Unicode letters cannot authorize issue or PR commands', () => {
   const bodies = [
-    '@pullfrog \u115f', '@pullfrog \u1160', '@pullfrog \u3164', '@pullfrog \uffa0',
+    '@pullfrog \u115f',
+    '@pullfrog \u1160',
+    '@pullfrog \u3164',
+    '@pullfrog \uffa0',
     '@pullfrog \u115f\u1160\u3164\uffa0\u200b',
     '@pullfrog \u3164\nreview this PR',
     '@pullfrog \u3164\n' + '界'.repeat(30000),
@@ -117,7 +152,10 @@ void test('visible Unicode commands authorize without changing the original inst
 });
 
 void test('oversized commands use the authorized event snapshot', () => {
-  const result = run({ ...EVENT, comment: { ...EVENT.comment, body: '@pullfrog review ' + '界'.repeat(30000) } });
+  const result = run({
+    ...EVENT,
+    comment: { ...EVENT.comment, body: '@pullfrog review ' + '界'.repeat(30000) },
+  });
   assert.equal(result.status, 0, result.stderr);
   assert.ok(Buffer.byteLength(result.output) < 64 * 1024);
   const payload = JSON.parse(result.output.split('\n')[0].slice('payload='.length));
