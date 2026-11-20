@@ -30,6 +30,10 @@ function run(event: typeof EVENT, overrides: NodeJS.ProcessEnv = {}) {
 }
 
 test('owner PR and issue commands preserve identity and instruction without output injection', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/pullfrog.yml', import.meta.url), 'utf8');
+  const bootstrapVersion = /^[ \t]*uses:[ \t]+pullfrog\/pullfrog@[0-9a-f]{40}[ \t]+#[ \t]+v(\d+\.\d+\.\d+)[ \t]*$/m.exec(workflow)?.[1];
+  assert.ok(bootstrapVersion, 'Expected a release version annotation on the SHA-pinned Pullfrog action');
+
   for (const isPr of [true, false]) {
     const event = structuredClone(EVENT);
     if (!isPr) Reflect.deleteProperty(event.issue, 'pull_request');
@@ -41,7 +45,7 @@ test('owner PR and issue commands preserve identity and instruction without outp
     assert.equal(lines[1], 'authorized=true');
     const payload = JSON.parse(lines[0].slice('payload='.length));
     assert.equal(payload['~pullfrog'], true);
-    assert.equal(payload.version, '0.1.122');
+    assert.equal(payload.version, bootstrapVersion);
     assert.equal(payload.triggerer, 'jatmn');
     assert.equal(payload.event.authorPermission, 'admin');
     assert.equal(payload.event.issue_number, 7);
