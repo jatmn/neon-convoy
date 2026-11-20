@@ -3,7 +3,7 @@ import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 export function checksFor(paths: string[]) {
-  const shared = paths.some(path => /^(package(-lock)?\.json|tsconfig[^/]*\.json|\.github\/workflows\/check\.yml)$/.test(path));
+  const shared = paths.some(path => /^(package\.json|bun\.lock|bunfig\.toml|tsconfig[^/]*\.json|scripts\/install-bun\.sh|scripts\/verify\.ts|\.github\/workflows\/check\.yml)$/.test(path));
   const app = paths.some(path => /^(src|public)\//.test(path) || /^(index\.html|favicon\.svg|vite\.config\.ts)$/.test(path));
   return {
     types: shared || paths.some(path => /\.([cm]?ts|tsx)$/.test(path)),

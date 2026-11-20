@@ -24,10 +24,8 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22.18.0'
-          cache: npm
+      - name: Install pinned Bun
+        run: bash scripts/install-bun.sh
       - name: Select affected surfaces
         id: paths
         env:
@@ -46,13 +44,13 @@ jobs:
             fi
           fi
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
-      - run: npm ci
+      - run: bun install --frozen-lockfile
       - name: Run game checks
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
           MODE: ${{ steps.paths.outputs.mode }}
-        run: node scripts/verify.ts "$MODE" "$BASE_SHA" "$HEAD_SHA" --install-chromium
+        run: bun scripts/verify.ts "$MODE" "$BASE_SHA" "$HEAD_SHA" --install-chromium
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:

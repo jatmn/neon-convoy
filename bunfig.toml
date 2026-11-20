@@ -1,0 +1,4 @@
+[test]
+isolate = true
+randomize = true
+pathIgnorePatterns = ["tests/browser.spec.ts", "tests/distribution.spec.ts"]

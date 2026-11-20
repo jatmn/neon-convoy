@@ -19,7 +19,7 @@ requests belong in public issues.
 
 ## Dependency updates
 
-Dependabot checks npm dependencies and GitHub Actions weekly. Updates require
+Dependabot checks Bun dependencies and GitHub Actions weekly. Updates require
 maintainer review and the existing validation checks. When a dependency update
 changes the generated standalone build, regenerate and commit `play.html` as
 described in [CONTRIBUTING.md](CONTRIBUTING.md).

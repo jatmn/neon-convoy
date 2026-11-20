@@ -57,17 +57,17 @@ Every level has a distinct original looping synthwave arrangement, synthesized i
 
 ## Develop
 
-Requires Node.js **22.18 or newer**.
+Requires Bun **1.4.6-canary.1** (revision `7bb427f3b`, pinned in `package.json`).
 
 ```sh
-npm ci
-npm run dev
+bun install --frozen-lockfile
+bun run dev
 ```
 
 Open the URL Vite prints. To build:
 
 ```sh
-npm run build
+bun run build
 ```
 
 This produces a deployable static site in `dist/` and regenerates the checked-in standalone `play.html`. Upload `dist/` to any static host, or distribute `play.html`. No backend, accounts, or API keys are needed.
@@ -87,13 +87,13 @@ CDN setup, custom-domain DNS, HTTPS, and GitHub environment configuration.
 ## Validate
 
 ```sh
-npx playwright install chromium
-npm run check
+bun --bun playwright install --only-shell chromium
+bun run verify
 ```
 
-Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `npm run check` runs all local gates; individual commands are `npm run typecheck`, `npm test`, `npm run build`, `npm run test:browser`, and `npm run test:distribution` (after building).
+Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs all local gates; individual commands are `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution` (after building).
 
-TypeScript is checked by `tsc`; Vite builds the browser code and Node runs the scripts and simulation tests using native type stripping. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
+Bun uses its TypeScript 7 checker and runs the scripts and isolated, randomized simulation tests. Vite builds the browser code. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
 
 If Chromium is already installed outside Playwright's expected location, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable before running browser tests.
 
@@ -117,7 +117,7 @@ GitHub Actions runs on pull requests (including forks), merge groups, and pushes
 | Routing code/tests | Routing and types |
 | Package manifests, TypeScript config, or check workflow | All checks |
 
-Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job installs the pinned Playwright Chromium shell once and retains browser failure artifacts for seven days. It runs independent checks in parallel, rebuilds and checks that committed `play.html` is current; run `npm run build` and commit the result whenever build inputs change.
+Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job installs the pinned Playwright Chromium shell once and retains browser failure artifacts for seven days. It runs independent checks in parallel, rebuilds and checks that committed `play.html` is current; run `bun run build` and commit the result whenever build inputs change.
 
 Require the stable **Game checks** status for `main`. In a public organization repository, add the merge queue to the same active ruleset with no bypass actors. The queue validates the combined commit against the latest base before it can merge. An unavailable rules lookup results in full PR validation. GitHub-managed CodeQL and third-party integrations have their own scheduling.
 

@@ -17,7 +17,7 @@ test('documentation and screenshots skip game checks', () => {
 });
 
 test('shared tooling and the workflow validate every surface', () => {
-  for (const path of ['package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/check.yml']) {
+  for (const path of ['package.json', 'bun.lock', 'bunfig.toml', 'scripts/install-bun.sh', 'scripts/verify.ts', 'tsconfig.json', '.github/workflows/check.yml']) {
     assert.deepEqual(checksFor([path]), all, path);
   }
 });
@@ -101,8 +101,7 @@ test('required game checks fail and report all unsuccessful commands', { skip: p
   const dir = mkdtempSync(join(tmpdir(), 'neon-verify-'));
   const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
   try {
-    writeFileSync(join(dir, 'npm'), '#!/bin/sh\ncase "$2" in typecheck|build) exit 1 ;; esac\n', { mode: 0o755 });
-    writeFileSync(join(dir, 'node'), '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'bun'), '#!/bin/sh\ncase "$1:$2" in test:*|check:*|run:build) exit 1 ;; esac\n', { mode: 0o755 });
     const result = spawnSync(process.execPath, [script], {
       cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
     });

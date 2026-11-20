@@ -54,7 +54,7 @@ changes, or external services before implementing them.
 ## Technical Direction
 
 Use TypeScript for game code, tests, and repository scripts, with the existing
-HTML, CSS, Canvas, Web Audio, Node, Vite, and Playwright setup. Keep explicit
+HTML, CSS, Canvas, Web Audio, Bun, Vite, and Playwright setup. Keep explicit
 `.ts` imports and erasable TypeScript syntax as described in the README.
 
 Do not introduce a new implementation language, runtime, build system, or
@@ -86,19 +86,19 @@ Every PR should:
 - Keep credentials, private logs, personal data, and local machine paths out of
   committed files and shared evidence.
 
-Use Node.js 22.18 or newer. Install dependencies with `npm ci`; use
-`npm run dev` for local development.
+Use the Bun version pinned in `package.json`. Install dependencies with `bun install --frozen-lockfile`; use
+`bun run dev` for local development.
 
 For code, tooling, dependency, or build changes, run the full local validation:
 
 ```sh
-npx playwright install chromium
-npm run check
+bun --bun playwright install --only-shell chromium
+bun run verify
 ```
 
 This checks types, simulation, the production build, browser controls, and both
 site and standalone distribution paths. When build inputs change, run
-`npm run build` and commit the regenerated `play.html`; do not hand-edit it.
+`bun run build` and commit the regenerated `play.html`; do not hand-edit it.
 
 For documentation-only changes, check links and formatting and run
 `git diff --check`. CI selects checks by changed surface; the stable
