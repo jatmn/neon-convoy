@@ -28,9 +28,12 @@ jobs:
           echo "$(( $(date +%s%3N) + 15000 ))" > "$clock.wait-until"
           (
             set -euo pipefail
-            if started=$(timeout --kill-after=1s 14s gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
-              --jq '.jobs[] | select(.name == "Game checks") | .started_at') &&
-              [[ -n "$started" ]] && date -u -d "$started" +%s%3N > "$clock.partial"; then
+            if timeout --kill-after=1s 14s bash -c '
+              until started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" --jq "$1") &&
+                [[ -n "$started" ]] && date -u -d "$started" +%s%3N; do
+                sleep 0.25
+              done
+            ' _ '.jobs[] | select(.name == "Game checks") | .started_at' > "$clock.partial"; then
               mv "$clock.partial" "$clock"
             else
               echo "Could not read the job start time from GitHub."
@@ -85,7 +88,7 @@ jobs:
           export GAME_CHECK_DEADLINE_MS=$(( GAME_CHECK_STARTED_MS + 33000 ))
           remaining=$(( GAME_CHECK_DEADLINE_MS - $(date +%s%3N) ))
           if (( remaining <= 0 )); then
-            echo "::error::Setup exhausted the required job budget."
+            echo "::error::Setup reached the 33 s work cutoff. The job reserves 2 s for finalization."
             exit 1
           fi
           printf -v deadline '%d.%03ds' "$((remaining / 1000))" "$((remaining % 1000))"
@@ -104,8 +107,8 @@ jobs:
           if [[ ! -f "$clock" ]]; then exit 0; fi
           read -r GAME_CHECK_STARTED_MS < "$clock"
           elapsed=$(( $(date +%s%3N) - GAME_CHECK_STARTED_MS ))
-          echo "Game checks runner elapsed: ${elapsed} ms (33 s plus finalization)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Game checks runner elapsed: ${elapsed} ms (33000 ms work cutoff, 2000 ms reserved for finalization)" >> "$GITHUB_STEP_SUMMARY"
           if (( elapsed >= 33000 )); then
-            echo "::error::Game checks exceeded the 35 s job budget."
+            echo "::error::Game checks reached the 33 s work cutoff. The job reserves 2 s for finalization."
             exit 1
           fi

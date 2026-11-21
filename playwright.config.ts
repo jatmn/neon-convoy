@@ -4,6 +4,9 @@ const jobDeadline = Number(process.env.GAME_CHECK_DEADLINE_MS);
 // Let Playwright finish reporting before the shell terminates the verifier.
 const suiteDeadline = jobDeadline ? jobDeadline - 2_000 : 0;
 
+// Playwright's automatic failure snapshot can wait five seconds before it reports the test.
+if (suiteDeadline) process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
+
 export default defineConfig({
   testDir: './tests',
   testMatch: 'browser.spec.ts',

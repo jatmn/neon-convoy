@@ -1,6 +1,11 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './browser-fixtures.ts';
 
+test.beforeEach(async ({ page }) => {
+  // The game controls work with fallback fonts and do not need the external stylesheet.
+  await page.route('https://fonts.googleapis.com/**', (route) => route.abort());
+});
+
 async function clickWorld(page: Page, x: number, y: number) {
   const canvas = page.locator('#game');
   await canvas.scrollIntoViewIfNeeded();

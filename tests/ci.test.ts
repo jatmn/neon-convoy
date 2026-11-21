@@ -593,9 +593,17 @@ void test(
         join(dir, 'gh'),
         `#!/bin/sh
 if [ "$1:$2" = "api:repos/fixture/game/actions/runs/23/attempts/1/jobs" ]; then
+  [ "$3" = --jq ] && [ "$4" = '.jobs[] | select(.name == "Game checks") | .started_at' ] || exit 2
   if [ "$CLOCK_API" = error ]; then
     echo "clock API failed" >&2
     exit 1
+  fi
+  if [ "$CLOCK_API" = transient ] || [ "$CLOCK_API" = missing ]; then
+    if [ ! -f "$RUNNER_TEMP/first-clock-attempt" ]; then
+      touch "$RUNNER_TEMP/first-clock-attempt"
+      if [ "$CLOCK_API" = transient ]; then exit 1; fi
+      exit 0
+    fi
   fi
   attempts=0
   while [ ! -f "$RUNNER_TEMP/release-clock" ] && [ "$attempts" -lt 100 ]; do
@@ -603,7 +611,7 @@ if [ "$1:$2" = "api:repos/fixture/game/actions/runs/23/attempts/1/jobs" ]; then
     attempts=$((attempts + 1))
   done
   [ -f "$RUNNER_TEMP/release-clock" ] || exit 2
-  echo "2026-11-21T17:00:00Z"
+  echo "1970-01-01T00:01:39Z"
   exit 0
 fi
 [ "$#" = 5 ] && [ "$1" = api ] && [ "$2" = repos/fixture/game/rules/branches/main ] &&
@@ -624,17 +632,39 @@ printf "%s\\n" "$2"
       );
       writeFileSync(
         join(dir, 'date'),
-        '#!/bin/sh\nif [ "$1" = "-u" ]; then echo 99000; else echo "${MOCK_NOW:-100000}"; fi\n',
+        `#!/bin/sh
+if [ "$1" = "-u" ]; then
+  [ "$*" = '-u -d 1970-01-01T00:01:39Z +%s%3N' ] || exit 2
+  echo 99000
+else
+  echo "\${MOCK_NOW:-100000}"
+fi
+`,
         { mode: 0o755 },
       );
       writeFileSync(
         join(dir, 'sleep'),
-        '#!/bin/sh\n[ "$1" = "0.1" ] || exit 2\ntouch "$RUNNER_TEMP/release-clock"\ncommand -p sleep 0.02\n',
+        `#!/bin/sh
+case "$1" in
+  0.1) touch "$RUNNER_TEMP/release-clock"; command -p sleep 0.02 ;;
+  0.25) command -p sleep 0.02 ;;
+  *) exit 2 ;;
+esac
+`,
         { mode: 0o755 },
       );
       writeFileSync(
         join(dir, 'timeout'),
-        '#!/bin/sh\ncase "$1 $2 $3" in "--kill-after=1s 32.000s bun"|"--kill-after=1s 14s gh") ;; *) exit 2 ;; esac\nshift 2\nexec "$@"\n',
+        `#!/bin/sh
+duration="$1 $2 $3"
+shift 2
+case "$duration" in
+  "--kill-after=1s 32.000s bun") exec "$@" ;;
+  "--kill-after=1s 14s bash")
+    exec "$TEST_BUN" -e 'const child = Bun.spawn(process.argv.slice(1), { stdout: "inherit", stderr: "inherit", timeout: 750 }); process.exit(await child.exited);' "$@" ;;
+  *) exit 2 ;;
+esac
+`,
         { mode: 0o755 },
       );
       const output = join(dir, 'outputs');
@@ -676,10 +706,18 @@ printf "%s\\n" "$2"
         GITHUB_REPOSITORY: 'fixture/game',
         GITHUB_RUN_ID: '23',
         GITHUB_RUN_ATTEMPT: '1',
+        TEST_BUN: process.execPath,
       };
       rmSync(join(dir, 'game-check-start'));
       run(startClock.command, clockEnv);
       assert.equal(mode('active=true'), 'selected', 'a timestamp arriving during the wait is accepted');
+
+      for (const clockApi of ['transient', 'missing']) {
+        rmSync(join(dir, 'game-check-start'));
+        run(startClock.command, { ...clockEnv, CLOCK_API: clockApi });
+        assert.equal(mode(''), 'full', `verification recovers after a ${clockApi} first clock response`);
+        rmSync(join(dir, 'first-clock-attempt'));
+      }
 
       rmSync(join(dir, 'game-check-start'));
       run(startClock.command, { ...clockEnv, CLOCK_API: 'error' });
@@ -695,9 +733,13 @@ printf "%s\\n" "$2"
       assert.equal(run(enforce.command, enforceEnv).output, '');
       writeFileSync(join(dir, 'game-check-start'), '99000\n');
       assert.match(run(enforce.command, enforceEnv).output, /runner elapsed: 1000 ms/);
+      const belowBudget = run(enforce.command, { ...enforceEnv, MOCK_NOW: '131999' });
+      assert.match(belowBudget.output, /runner elapsed: 32999 ms/);
       const overBudget = run(enforce.command, { ...enforceEnv, MOCK_NOW: '132000' }, 1);
-      assert.match(overBudget.output, /runner elapsed: 33000 ms/);
-      assert.match(overBudget.stdout, /exceeded the 35 s job budget/);
+      assert.match(overBudget.output, /runner elapsed: 33000 ms \(33000 ms work cutoff, 2000 ms reserved/);
+      const cutoffMessage = /reached the 33 s work cutoff\. The job reserves 2 s for finalization\./;
+      assert.match(overBudget.stdout, cutoffMessage);
+      assert.match(run(verify.command, { ...verifyEnv(''), MOCK_NOW: '132000' }, 1).stdout, cutoffMessage);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

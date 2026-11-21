@@ -4,8 +4,9 @@ Install Playwright's pinned Chromium and run `bun run verify` to validate a rele
 The verifier runs `bun run lint` for the Landmines testing rules. See the
 [README validation commands](../README.md#validate) for setup and the full list.
 
-Run `bun scripts/check-browser-deadline.ts` to check failure reporting and
-trace finalization with a deliberately stalled browser font.
+Run `bun scripts/check-browser-deadline.ts` to check that a stalled font and a
+busy renderer each produce a named timeout and a finalized trace before the
+verifier deadline.
 
 ## TypeScript migration results
 

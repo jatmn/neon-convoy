@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { test as base } from '@playwright/test';
 
 export { expect } from '@playwright/test';
@@ -27,13 +28,13 @@ export const test = base.extend<{ screenshotDeadline: number }>({
 
     const timeout = Math.min(screenshotBudget, screenshotDeadline - Date.now());
     if (timeout <= 0) return;
-    // Screenshot capture can wait on a stalled font. Leave trace teardown time to finish.
-    const path = testInfo.outputPath('test-failed-1.png');
-    try {
-      await page.screenshot({ path, timeout, caret: 'initial' });
-    } catch {
-      return;
+    // Playwright can wait for trace instrumentation before its screenshot timeout starts.
+    const screenshot = await Promise.race([
+      page.screenshot({ timeout, caret: 'initial' }).catch(() => undefined),
+      delay(timeout, undefined, { ref: false }),
+    ]);
+    if (screenshot) {
+      await testInfo.attach('screenshot', { body: screenshot, contentType: 'image/png' });
     }
-    await testInfo.attach('screenshot', { path, contentType: 'image/png' });
   },
 });
