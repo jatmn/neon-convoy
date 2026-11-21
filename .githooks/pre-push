@@ -1,0 +1,3 @@
+#!/bin/sh
+# Verification uses Git's stdin records and needs no changed-file range.
+test "${HK:-1}" = 0 || exec hk run pre-push --from-hook --from-ref HEAD --to-ref HEAD "$@"

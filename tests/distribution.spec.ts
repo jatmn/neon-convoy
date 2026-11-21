@@ -15,7 +15,7 @@ for (const entry of ['dist/index.html', 'play.html']) {
       await page.route(/^https?:\/\//, (route) =>
         new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
       );
-      await page.goto('http://127.0.0.1:4174/');
+      await page.goto('/');
     } else {
       await page.goto(pathToFileURL(resolve(entry)).href);
     }
