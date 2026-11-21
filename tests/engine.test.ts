@@ -27,7 +27,7 @@ function playSolution(level: Level) {
   return { game, assigned };
 }
 
-test('ten progressively equipped levels have valid goals and deterministic solutions', () => {
+void test('ten progressively equipped levels have valid goals and deterministic solutions', () => {
   assert.equal(LEVELS.length, 10);
   assert.deepEqual(LEVELS.map(level => level.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   assert.deepEqual(LEVELS.map(level => level.total), [8, 9, 10, 10, 10, 11, 12, 13, 14, 16]);
@@ -47,7 +47,7 @@ test('ten progressively equipped levels have valid goals and deterministic solut
   }
 });
 
-test('terrain edits use 4-pixel cells, retain steel, and report revisions', () => {
+void test('terrain edits use 4-pixel cells, retain steel, and report revisions', () => {
   const terrain = new Terrain([{ x: 0, y: 0, w: 8, h: 8, type: 1 }, { x: 8, y: 0, w: 8, h: 8, type: 2 }]);
   assert.equal(terrain.width, 300);
   assert.equal(terrain.height, 150);
@@ -64,7 +64,7 @@ test('terrain edits use 4-pixel cells, retain steel, and report revisions', () =
   assert.equal(terrain.revision, 2);
 });
 
-test('bridge, drill, laser, and missile leave shared routes for later drones', () => {
+void test('bridge, drill, laser, and missile leave shared routes for later drones', () => {
   const bridge = playSolution(LEVELS[1]).game;
   assert.equal(bridge.terrain.get(530, 502), 3, 'bridge spans the gap');
   assert.equal(bridge.terrain.get(530, 492), 3, 'bridge rises above the launch road');
@@ -83,7 +83,7 @@ test('bridge, drill, laser, and missile leave shared routes for later drones', (
   assert.equal(circuit.terrain.get(690, 502), 3, 'lower road gap is bridged');
 });
 
-test('sandbox brush changes terrain and excludes the run from scoring', () => {
+void test('sandbox brush changes terrain and excludes the run from scoring', () => {
   const game = new Game(LEVELS[0]);
   const original = game.terrain.get(450, 480);
   assert.equal(original, 1);
@@ -106,7 +106,7 @@ test('sandbox brush changes terrain and excludes the run from scoring', () => {
   assert.equal(game.score, 0);
 });
 
-test('pause freezes time but still permits assignment; reset restores counters and terrain', () => {
+void test('pause freezes time but still permits assignment; reset restores counters and terrain', () => {
   const game = new Game(LEVELS[0]);
   assert.equal(game.status, 'ready');
   game.start();
@@ -129,7 +129,7 @@ test('pause freezes time but still permits assignment; reset restores counters a
   assert.equal(game.terrain.get(450, 480), 1);
 });
 
-test('steel survives laser and missile damage', () => {
+void test('steel survives laser and missile damage', () => {
   const level = {
     ...LEVELS[0], total: 1, required: 1, spawn: { x: 350, y: 500, dir: 1 },
     terrain: [{ x: 0, y: 500, w: 1200, h: 100, type: 1 }, { x: 400, y: 450, w: 32, h: 50, type: 2 }],
@@ -147,7 +147,7 @@ test('steel survives laser and missile damage', () => {
   assert.equal(game.terrain.get(404, 480), 2);
 });
 
-test('unprotected fall loses a drone while boost saves it', () => {
+void test('unprotected fall loses a drone while boost saves it', () => {
   const level = { ...LEVELS[5], total: 1, required: 1, tools: { ...LEVELS[5].tools, boost: 1 } };
   const plain = new Game(level); plain.start();
   for (let i = 0; i < 1200 && plain.status === 'running'; i++) plain.update(1 / 60);
@@ -160,7 +160,7 @@ test('unprotected fall loses a drone while boost saves it', () => {
   assert.equal(boosted.lost, 0);
 });
 
-test('time limit ends a run that cannot reach its exit', () => {
+void test('time limit ends a run that cannot reach its exit', () => {
   const level = { ...LEVELS[0], total: 1, required: 1, timeLimit: 2, tools: { ...LEVELS[0].tools, laser: 0 } };
   const game = new Game(level); game.start();
   for (let i = 0; i < 180; i++) game.update(1 / 60);
@@ -169,7 +169,7 @@ test('time limit ends a run that cannot reach its exit', () => {
   assert.equal(game.score, 0);
 });
 
-test('meeting the quota keeps play open so remaining drones can add to the score', () => {
+void test('meeting the quota keeps play open so remaining drones can add to the score', () => {
   const level = { ...LEVELS[0], total: 2, required: 1, timeLimit: 10, exit: { x: 70, y: 500 }, terrain: [{ x: 0, y: 500, w: 1200, h: 100, type: 1 }] };
   const game = new Game(level); game.start();
   game.update(1 / 60);
@@ -182,7 +182,7 @@ test('meeting the quota keeps play open so remaining drones can add to the score
   assert.ok(game.score >= 200);
 });
 
-test('blocker can be released without spending another block', () => {
+void test('blocker can be released without spending another block', () => {
   const game = new Game(LEVELS[4]); game.start();
   assert.equal(game.assign(1, 'block'), true);
   assert.equal(game.drones[0].state, 'block');

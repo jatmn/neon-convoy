@@ -11,7 +11,7 @@ const env = {
   BUNNY_STORAGE_PASSWORD: 'storage-secret',
 };
 
-test('deployment uploads only built files, assets before HTML, without an account API key', async () => {
+void test('deployment uploads only built files, assets before HTML, without an account API key', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'neon-deploy-'));
   const previous = process.cwd();
   const calls: { url: string; method: string; key: string; body: string }[] = [];
@@ -19,7 +19,7 @@ test('deployment uploads only built files, assets before HTML, without an accoun
   const request: typeof fetch = async (input, init) => {
     assert.ok(init);
     calls.push({
-      url: String(input), method: init.method!,
+      url: input instanceof Request ? input.url : input.toString(), method: init.method!,
       key: new Headers(init.headers).get('AccessKey')!,
       body: typeof init.body === 'string' ? init.body : new TextDecoder().decode(init.body as Uint8Array),
     });

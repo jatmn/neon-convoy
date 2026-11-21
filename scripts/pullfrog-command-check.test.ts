@@ -29,7 +29,7 @@ function run(event: typeof EVENT, overrides: NodeJS.ProcessEnv = {}) {
   }
 }
 
-test('owner PR and issue commands preserve identity and instruction without output injection', () => {
+void test('owner PR and issue commands preserve identity and instruction without output injection', () => {
   const workflow = readFileSync(new URL('../.github/workflows/pullfrog.yml', import.meta.url), 'utf8');
   const bootstrapVersion = /^[ \t]*uses:[ \t]+pullfrog\/pullfrog@[0-9a-f]{40}[ \t]+#[ \t]+v(\d+\.\d+\.\d+)[ \t]*$/m.exec(workflow)?.[1];
   assert.ok(bootstrapVersion, 'Expected a release version annotation on the SHA-pinned Pullfrog action');
@@ -56,7 +56,7 @@ test('owner PR and issue commands preserve identity and instruction without outp
   }
 });
 
-test('other actors, reruns and unrelated events cannot authorize the agent', () => {
+void test('other actors, reruns and unrelated events cannot authorize the agent', () => {
   for (const overrides of [
     { GITHUB_ACTOR: 'contributor' }, { GITHUB_TRIGGERING_ACTOR: 'contributor' },
     { GITHUB_RUN_ATTEMPT: '2' }, { GITHUB_EVENT_NAME: 'workflow_dispatch' },
@@ -76,7 +76,7 @@ test('other actors, reruns and unrelated events cannot authorize the agent', () 
   }
 });
 
-test('passive, bare, quoted and invisible commands are rejected', () => {
+void test('passive, bare, quoted and invisible commands are rejected', () => {
   for (const body of ['@pullfrog', '@pullfrog  ', 'please ask @pullfrog review',
     '> @pullfrog review', '    @pullfrog review', '```\n@pullfrog review\n```',
     '\n@pullfrog review', '@pullfrog\nreview', '@pullfrog \u200b', '@pullfrog !!!']) {
@@ -86,7 +86,7 @@ test('passive, bare, quoted and invisible commands are rejected', () => {
   }
 });
 
-test('invisible Unicode letters cannot authorize issue or PR commands', () => {
+void test('invisible Unicode letters cannot authorize issue or PR commands', () => {
   const bodies = [
     '@pullfrog \u115f', '@pullfrog \u1160', '@pullfrog \u3164', '@pullfrog \uffa0',
     '@pullfrog \u115f\u1160\u3164\uffa0\u200b',
@@ -105,7 +105,7 @@ test('invisible Unicode letters cannot authorize issue or PR commands', () => {
   }
 });
 
-test('visible Unicode commands authorize without changing the original instruction', () => {
+void test('visible Unicode commands authorize without changing the original instruction', () => {
   for (const isPr of [true, false]) {
     for (const body of ['@pullfrog 審査してください', '@pullfrog بررسی\u200cکنید']) {
       const event = structuredClone(EVENT);
@@ -120,7 +120,7 @@ test('visible Unicode commands authorize without changing the original instructi
   }
 });
 
-test('oversized commands use the authorized event snapshot', () => {
+void test('oversized commands use the authorized event snapshot', () => {
   const result = run({ ...EVENT, comment: { ...EVENT.comment, body: '@pullfrog review ' + '界'.repeat(30000) } });
   assert.equal(result.status, 0, result.stderr);
   assert.ok(Buffer.byteLength(result.output) < 64 * 1024);
@@ -129,7 +129,7 @@ test('oversized commands use the authorized event snapshot', () => {
   assert.ok(payload.prompt.includes('comment.body'));
 });
 
-test('invalid issue and comment identifiers fail closed', () => {
+void test('invalid issue and comment identifiers fail closed', () => {
   for (const field of ['issue', 'comment']) {
     for (const id of [null, true, -1, '123', 2 ** 53]) {
       const event = JSON.parse(JSON.stringify(EVENT));
