@@ -103,6 +103,8 @@ Simulation tests verify scripted solutions for all ten levels, persistent terrai
 
 Run `bun fmt` to format tracked source and documentation. Generated `play.html` is checked against a fresh build.
 
+Git can leave CRLF line endings in files an update leaves untouched. If the format check flags those files after updating a clean checkout, run `bun fmt` once to convert them to LF. `git diff` should show no content changes from the conversion.
+
 Use `bun lint --no-script --config .oxlintrc.native.json --type-aware --all --max-warnings 0` to run the native correctness, suspicious code, performance, and nursery rules. Deployment and the browser test for stable Play/Pause controls intentionally sequence operations. The configuration preserves CSS imports, typed DOM access, and defensive conversions.
 
 Bun uses its TypeScript 7 checker and runs the scripts and isolated, randomized unit tests. Vite builds the browser code. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
