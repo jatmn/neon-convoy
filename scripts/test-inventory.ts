@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import type { JSONReport, JSONReportSuite } from '@playwright/test/reporter';
 
 const xmlEntities = new Map([
@@ -10,6 +10,10 @@ const xmlEntities = new Map([
   ['&lt;', '<'],
   ['&gt;', '>'],
 ]);
+
+function gitPath(path: string) {
+  return path.replaceAll(sep, '/');
+}
 
 function unitFiles(directory: string) {
   const { files }: { files: Record<string, number> } = JSON.parse(
@@ -30,34 +34,50 @@ function unitFiles(directory: string) {
       /&(?:amp|apos|quot|lt|gt|#\d+);/g,
       (entity) => xmlEntities.get(entity) ?? String.fromCodePoint(Number(entity.slice(2, -1))),
     );
-    counts.set(file, Number(count));
+    counts.set(gitPath(file), Number(count));
   }
-  for (const file of Object.keys(files)) {
+  const timings = new Map<string, number>();
+  for (const [reportedFile, elapsed] of Object.entries(files)) {
+    const file = gitPath(reportedFile);
     if (!counts.get(file)) throw new Error(`No unit tests ran in ${file}`);
+    timings.set(file, elapsed);
   }
-  return new Map(Object.entries(files));
+  return timings;
 }
 
 function browserFiles(report: JSONReport) {
   if (report.stats.skipped || report.stats.flaky || report.stats.unexpected) {
     throw new Error('Browser report contains skipped, retried, or failed tests');
   }
-  const files = new Map<string, number>();
+  const files = new Map<string, { elapsed: number; projects: Set<string> }>();
   const visit = (suite: JSONReportSuite) => {
-    const file = relative(process.cwd(), resolve(report.config.rootDir, suite.file));
+    const file = gitPath(relative(process.cwd(), resolve(report.config.rootDir, suite.file)));
     for (const spec of suite.specs) {
       for (const test of spec.tests) {
         const [result] = test.results;
         if (test.results.length !== 1 || result.status !== 'passed') {
           throw new Error(`Expected one passing attempt of ${spec.title} (${test.projectName})`);
         }
-        files.set(file, (files.get(file) ?? 0) + result.duration);
+        const coverage = files.get(file) ?? { elapsed: 0, projects: new Set<string>() };
+        coverage.elapsed += result.duration;
+        coverage.projects.add(test.projectId);
+        files.set(file, coverage);
       }
     }
     for (const child of suite.suites ?? []) visit(child);
   };
   for (const suite of report.suites) visit(suite);
-  return files;
+  const timings = new Map<string, number>();
+  for (const [file, { elapsed, projects }] of files) {
+    const missing = report.config.projects.filter(({ id }) => !projects.has(id));
+    if (missing.length) {
+      throw new Error(
+        `Missing Playwright project for ${file}: ${missing.map(({ name }) => name).join(', ')}`,
+      );
+    }
+    timings.set(file, elapsed);
+  }
+  return timings;
 }
 
 export function recordTestInventory(directory: string) {

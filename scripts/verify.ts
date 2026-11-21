@@ -64,21 +64,20 @@ function check(name: string, start: () => void | Promise<void>, ...prerequisites
   return result;
 }
 
+function spawnCommand(command: string, args: string[], env?: NodeJS.ProcessEnv) {
+  return new Promise<void>((resolve, reject) => {
+    const stdio: StdioOptions = ['ignore', 'inherit', 'inherit'];
+    const child = spawn(command, args, { stdio, env });
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(signal ?? `exit code ${code}`));
+    });
+  });
+}
+
 function run(name: string, command: string, args: string[], ...prerequisites: Promise<CheckResult>[]) {
-  return check(
-    name,
-    () =>
-      new Promise<void>((resolve, reject) => {
-        const stdio: StdioOptions = ['ignore', 'inherit', 'inherit'];
-        const child = spawn(command, args, { stdio });
-        child.once('error', reject);
-        child.once('close', (code, signal) => {
-          if (code === 0) resolve();
-          else reject(new Error(signal ?? `exit code ${code}`));
-        });
-      }),
-    ...prerequisites,
-  );
+  return check(name, () => spawnCommand(command, args), ...prerequisites);
 }
 
 const full = Object.values(checks).every(Boolean);
@@ -99,7 +98,8 @@ if (full) {
   if (checks.simulation) unitArgs.push('tests/engine.test.ts');
   if (checks.deployment) unitArgs.push('tests/deploy.test.ts');
 }
-void run('Unit tests', 'bun', unitArgs);
+// Bun's CI mode rejects focused tests, including during full local verification.
+void check('Unit tests', () => spawnCommand('bun', unitArgs, full ? { ...process.env, CI: '1' } : undefined));
 void run('Format', 'bun', ['fmt', '--check']);
 const needsChromium = checks.browser || checks.distribution;
 const dependencies =
@@ -164,8 +164,14 @@ if (jobStartedAt) {
   results.set('Setup budget', browserSetup);
 }
 
+const playwrightArgs = full ? ['--forbid-only'] : [];
 if (checks.browser) {
-  void run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], browserSetup);
+  void run(
+    'Browser controls',
+    'bun',
+    ['run', 'test:browser', '--output=test-results/browser', ...playwrightArgs],
+    browserSetup,
+  );
 }
 
 if (checks.distribution) {
@@ -187,7 +193,7 @@ if (checks.distribution) {
   void run(
     'Distribution',
     'bun',
-    ['run', 'test:distribution', '--output=test-results/distribution'],
+    ['run', 'test:distribution', '--output=test-results/distribution', ...playwrightArgs],
     build,
     browserSetup,
   );

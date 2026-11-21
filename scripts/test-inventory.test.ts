@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 const passing = `
   import { describe, expect, test } from 'bun:test';
@@ -83,4 +84,35 @@ void test('matches Bun discovery and accounts for nested tests under their file'
       assert.deepEqual(new Set(Object.keys(files)), new Set(testFiles));
     },
   );
+});
+
+void test('rejects a Playwright file missing from one configured project', () => {
+  withBunReports({ 'passing.test.ts': passing }, (recordInventory, directory) => {
+    const testDir = join(directory, 'tests');
+    mkdirSync(testDir);
+    const playwright = JSON.stringify(fileURLToPath(import.meta.resolve('@playwright/test')));
+    writeFileSync(
+      join(testDir, 'browser.spec.ts'),
+      `import { test } from ${playwright};
+test('runs without a browser', () => {});`,
+    );
+    execFileSync('git', ['add', '--', 'tests'], { cwd: directory });
+
+    const config = join(directory, 'playwright.config.ts');
+    writeFileSync(
+      config,
+      `export default {
+  testDir: './tests',
+  workers: 1,
+  projects: [{ name: 'desktop' }, { name: 'mobile', testIgnore: '**/browser.spec.ts' }],
+};`,
+    );
+    const cli = fileURLToPath(import.meta.resolve('@playwright/test/cli'));
+    execFileSync(process.execPath, ['--bun', cli, 'test', '--config', config, '--reporter=json'], {
+      cwd: directory,
+      env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_FILE: join(directory, 'browser.json') },
+      stdio: 'pipe',
+    });
+    assert.throws(recordInventory, /Missing Playwright project for tests\/browser\.spec\.ts: mobile/);
+  });
 });
