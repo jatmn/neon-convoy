@@ -1,7 +1,16 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -401,7 +410,7 @@ void test(
         spawnSync(process.execPath, [script, ...args], {
           cwd: dir,
           encoding: 'utf8',
-          env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+          env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, GAME_CHECK_STARTED_MS: '' },
         });
       const result = run();
       assert.equal(result.status, 1, result.stderr);
@@ -442,7 +451,12 @@ void test(
         {
           cwd: dir,
           encoding: 'utf8',
-          env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, INSTALL_STATUS: status },
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env.PATH}`,
+            INSTALL_STATUS: status,
+            GAME_CHECK_STARTED_MS: '',
+          },
         },
       );
     try {
@@ -477,26 +491,153 @@ void test(
 
       const docs = run('1', 'selected', 'HEAD~2', 'HEAD~1');
       assert.equal(docs.status, 0, docs.stderr);
-      assert.match(docs.stdout, /^Unit tests: passed$/m);
-      assert.match(docs.stdout, /^Format: passed$/m);
+      assert.match(docs.stdout, /^Unit tests: passed in \d+ ms$/m);
+      assert.match(docs.stdout, /^Format: passed in \d+ ms$/m);
       assert.throws(() => readFileSync(join(dir, 'installs')), { code: 'ENOENT' });
 
       const types = run('0', 'selected', 'HEAD~1', 'HEAD');
       assert.equal(types.status, 0, types.stderr);
-      assert.match(types.stdout, /^TypeScript: passed$/m);
-      assert.match(types.stdout, /^Test lint: passed$/m);
-      assert.match(types.stdout, /^Native lint: passed$/m);
+      assert.match(types.stdout, /^TypeScript: passed in \d+ ms$/m);
+      assert.match(types.stdout, /^Test lint: passed in \d+ ms$/m);
+      assert.match(types.stdout, /^Native lint: passed in \d+ ms$/m);
       assert.equal(readFileSync(join(dir, 'installs'), 'utf8'), 'install\n');
 
       const failed = run('1', 'full', '', '');
       assert.equal(failed.status, 1, failed.stderr);
-      assert.match(failed.stdout, /^Unit tests: passed$/m);
+      assert.match(failed.stdout, /^Unit tests: passed in \d+ ms$/m);
       assert.match(failed.stderr, /^Failed game checks: Dependency install$/m);
       assert.match(
         failed.stderr,
         /^Blocked game checks: Test lint, Native lint, TypeScript, Chromium setup, Browser controls, Production build, Standalone parity, Distribution$/m,
       );
       assert.equal(readFileSync(join(dir, 'installs'), 'utf8'), 'install\ninstall\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+void test(
+  'elapsed check budgets apply only when the workflow supplies its clock',
+  { skip: process.platform === 'win32' },
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), 'neon-budget-'));
+    const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
+    const budgetLog = join(dir, 'budget.log');
+    const outputLog = join(dir, 'output.log');
+    try {
+      writeFileSync(
+        join(dir, 'bun'),
+        `#!/bin/sh
+set -e
+wait_for_report() {
+  attempts=0
+  while [ "$attempts" -lt 50 ]; do
+    if grep -q "$1" "$2"; then return 0; fi
+    attempts=$((attempts + 1))
+    sleep 0.05
+  done
+  return 9
+}
+case "$1:$2:$TIMING_FIXTURE" in
+  fmt:--check:slow) sleep 1.1 ;;
+  fmt:--check:stall)
+    wait_for_report '^Format: failed (budget 1000 ms)' "$BUDGET_LOG"
+    echo "Formatter saw budget failure before exiting"
+    ;;
+  install:--frozen-lockfile:dependencies|--bun:playwright:chromium)
+    wait_for_report '^Setup budget: failed' "$OUTPUT_LOG"
+    echo "Installer saw budget failure before exiting"
+    ;;
+  --bun:playwright:install-error) exit 9 ;;
+esac
+`,
+        { mode: 0o755 },
+      );
+      const run = (started: string, fixture: string, ...options: string[]) => {
+        const stdout = openSync(outputLog, 'w');
+        const stderr = openSync(budgetLog, 'w');
+        try {
+          const result = spawnSync(process.execPath, [script, 'full', '', '', ...options], {
+            cwd: dir,
+            encoding: 'utf8',
+            stdio: ['ignore', stdout, stderr],
+            timeout: 5_000,
+            env: {
+              ...process.env,
+              PATH: `${dir}:${process.env.PATH}`,
+              CI: '1',
+              GAME_CHECK_STARTED_MS: started,
+              TIMING_FIXTURE: fixture,
+              BUDGET_LOG: budgetLog,
+              OUTPUT_LOG: outputLog,
+            },
+          });
+          assert.ifError(result.error);
+          return {
+            status: result.status,
+            stdout: readFileSync(outputLog, 'utf8'),
+            stderr: readFileSync(budgetLog, 'utf8'),
+          };
+        } finally {
+          closeSync(stdout);
+          closeSync(stderr);
+        }
+      };
+      const local = run('', 'slow');
+      assert.equal(local.status, 0, local.stderr);
+      assert.match(local.stdout, /^Format: passed in \d+ ms$/m);
+      const hosted = run(String(Date.now()), 'stall');
+      assert.equal(hosted.status, 1, hosted.stderr);
+      assert.match(hosted.stderr, /^Format: failed \(budget 1000 ms\) in \d+ ms$/m);
+      assert.match(hosted.stdout, /^Formatter saw budget failure before exiting$/m);
+      assert.match(hosted.stderr, /^Failed game checks: Format$/m);
+      assert.match(hosted.stdout, /^Setup budget: passed/m);
+      assert.match(hosted.stdout, /^Browser controls: passed/m);
+      assert.match(hosted.stdout, /^Distribution: passed/m);
+
+      const expired = run(String(Date.now() - 15_000), 'quick', '--install-chromium');
+      assert.equal(expired.status, 1, expired.stderr);
+      assert.match(expired.stdout, /^Setup budget: failed/m);
+      assert.match(expired.stdout, /^Unit tests: passed/m);
+      assert.match(expired.stdout, /^Production build: passed/m);
+      assert.doesNotMatch(expired.stdout, /^(Chromium setup|Browser controls|Distribution): started$/m);
+      assert.match(expired.stderr, /^Blocked game checks: Chromium setup, Browser controls, Distribution$/m);
+
+      for (const installer of ['dependencies', 'chromium']) {
+        const pending = run(
+          String(Date.now() - 14_500),
+          installer,
+          '--install-dependencies',
+          '--install-chromium',
+        );
+        assert.equal(pending.status, 1, pending.stderr);
+        assert.match(pending.stdout, /^Setup budget: failed in \d+ ms \(limit 15000 ms\)$/m);
+        assert.match(pending.stdout, /^Installer saw budget failure before exiting$/m);
+        assert.match(pending.stdout, /^Unit tests: passed/m);
+        assert.match(pending.stdout, /^Production build: passed/m);
+        assert.doesNotMatch(pending.stdout, /^(Browser controls|Distribution): started$/m);
+        assert.match(pending.stderr, /^Failed game checks: Setup budget$/m);
+        if (installer === 'dependencies') {
+          assert.doesNotMatch(pending.stdout, /^Chromium setup: started$/m);
+          assert.match(
+            pending.stderr,
+            /^Blocked game checks: Chromium setup, Browser controls, Distribution$/m,
+          );
+        } else {
+          assert.match(pending.stdout, /^Chromium setup: started$/m);
+          assert.match(pending.stderr, /^Blocked game checks: Browser controls, Distribution$/m);
+        }
+      }
+
+      const installError = run(String(Date.now()), 'install-error', '--install-chromium');
+      assert.equal(installError.status, 1, installError.stderr);
+      assert.doesNotMatch(installError.stdout, /^Setup budget:/m);
+      assert.match(installError.stderr, /^Failed game checks: Chromium setup$/m);
+      assert.match(
+        installError.stderr,
+        /^Blocked game checks: Setup budget, Browser controls, Distribution$/m,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -528,8 +669,14 @@ void test(
           .join('\n'),
       };
     };
+    const startClock = step('Start job timing lookup');
     const lookup = step('Detect the main merge queue');
     const verify = step('Run game checks');
+    const enforce = step('Enforce elapsed validation budget');
+    assert.ok(
+      workflow.indexOf('- name: Enforce elapsed validation budget') <
+        workflow.indexOf('actions/upload-artifact@'),
+    );
     assert.match(lookup.configuration, /GH_TOKEN:/);
     assert.match(verify.configuration, /QUEUE_ACTIVE: \$\{\{ steps\.queue\.outputs\.active \}\}/);
     assert.doesNotMatch(verify.configuration, /GH_TOKEN|github\.token/);
@@ -537,39 +684,134 @@ void test(
       writeFileSync(
         join(dir, 'gh'),
         `#!/bin/sh
+if [ "$1:$2" = "api:repos/fixture/game/actions/runs/23/attempts/1/jobs" ]; then
+  [ "$3" = --jq ] && [ "$4" = '.jobs[] | select(.name == "Game checks") | .started_at' ] || exit 2
+  if [ "$CLOCK_API" = error ]; then
+    echo "clock API failed" >&2
+    exit 1
+  fi
+  if [ "$CLOCK_API" = transient ] || [ "$CLOCK_API" = missing ] || [ "$CLOCK_API" = stalled ]; then
+    if [ ! -f "$RUNNER_TEMP/first-clock-attempt" ]; then
+      touch "$RUNNER_TEMP/first-clock-attempt"
+      if [ "$CLOCK_API" = transient ]; then exit 1; fi
+      if [ "$CLOCK_API" = stalled ]; then exec "$TEST_BUN" -e 'await Bun.sleep(5000)'; fi
+      exit 0
+    fi
+  fi
+  attempts=0
+  while [ ! -f "$RUNNER_TEMP/release-clock" ] && [ "$attempts" -lt 100 ]; do
+    command -p sleep 0.01
+    attempts=$((attempts + 1))
+  done
+  [ -f "$RUNNER_TEMP/release-clock" ] || exit 2
+  echo "1970-01-01T00:01:39Z"
+  exit 0
+fi
 [ "$#" = 5 ] && [ "$1" = api ] && [ "$2" = repos/fixture/game/rules/branches/main ] &&
   [ "$3" = --paginate ] && [ "$4" = --jq ] && [ "$5" = '.[] | select(.type == "merge_queue") | .type' ] || exit 2
 [ "$API_RULES" != error ] || exit 1
+if [ "$API_RULES" = stalled ]; then exec "$TEST_BUN" -e 'await Bun.sleep(5000)'; fi
 "$TEST_BUN" -e 'for (const rule of JSON.parse(process.env.API_RULES)) if (rule.type === "merge_queue") console.log(rule.type)'
 `,
         { mode: 0o755 },
       );
+      mkdirSync(join(dir, 'scripts'));
       writeFileSync(
-        join(dir, 'bun'),
-        '#!/bin/sh\n[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2\nprintf "%s\\n" "$2"\n',
+        join(dir, 'scripts', 'install-bun.sh'),
+        `#!/bin/sh
+if [ "$BUN_BOOTSTRAP" = stalled ]; then
+  echo 'Pinned Bun installation started'
+  exec "$TEST_BUN" -e 'await Bun.sleep(5000)'
+fi
+if [ -n "$AFTER_BUN_NOW" ]; then echo "$AFTER_BUN_NOW" > "$RUNNER_TEMP/after-bun-time"; fi
+exit "\${BUN_BOOTSTRAP:-0}"
+`,
+      );
+      mkdirSync(join(dir, 'neon-bun'));
+      writeFileSync(
+        join(dir, 'neon-bun', 'bun'),
+        `#!/bin/sh
+[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2
+[ "$GAME_CHECK_STARTED_MS:$GAME_CHECK_DEADLINE_MS" = "99000:132000" ] || exit 2
+printf "%s\\n" "$2"
+`,
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(dir, 'date'),
+        `#!/bin/sh
+if [ "$1" = "-u" ]; then
+  [ "$*" = '-u -d 1970-01-01T00:01:39Z +%s%3N' ] || exit 2
+  echo 99000
+else
+  if [ -n "$RUNNER_TEMP" ] && [ -f "$RUNNER_TEMP/after-bun-time" ]; then
+    cat "$RUNNER_TEMP/after-bun-time"
+  else
+    echo "\${MOCK_NOW:-100000}"
+  fi
+fi
+`,
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(dir, 'sleep'),
+        `#!/bin/sh
+case "$1" in
+  0.1) touch "$RUNNER_TEMP/release-clock"; command -p sleep 0.02 ;;
+  0.25) command -p sleep 0.02 ;;
+  *) exit 2 ;;
+esac
+`,
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(dir, 'timeout'),
+        `#!/bin/sh
+case "$1 $2 $3 $4" in
+  "--kill-after=1s 32.000s bun scripts/verify.ts") shift 2; exec "$@" ;;
+  "--kill-after=1s 14.000s bash scripts/install-bun.sh") shift 2; milliseconds=200 ;;
+  "--kill-after=1s 14s bash -c") shift 2; milliseconds=900 ;;
+  "--kill-after=1s 3s gh api") shift 2; milliseconds=200 ;;
+  "--foreground --kill-after=1s 3s gh") shift 3; milliseconds=200 ;;
+  *) exit 2 ;;
+esac
+FIXTURE_TIMEOUT="$milliseconds" exec "$TEST_BUN" -e 'const child = Bun.spawn(process.argv.slice(1), { stdout: "inherit", stderr: "inherit", timeout: Number(process.env.FIXTURE_TIMEOUT) }); const status = await child.exited; process.exit(child.signalCode ? 124 : status);' "$@"
+`,
         { mode: 0o755 },
       );
       const output = join(dir, 'outputs');
-      const run = (command: string, env: Record<string, string>) => {
+      const run = (command: string, env: Record<string, string>, expectedStatus = 0) => {
         writeFileSync(output, '');
         const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], {
           cwd: dir,
           encoding: 'utf8',
-          env: { PATH: `${dir}:${process.env.PATH}`, GITHUB_OUTPUT: output, ...env },
+          timeout: 5000,
+          env: {
+            PATH: `${dir}:${process.env.PATH}`,
+            GITHUB_OUTPUT: output,
+            TMPDIR: dir,
+            TMP: dir,
+            TEMP: dir,
+            ...env,
+          },
         });
-        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.status, expectedStatus, result.stderr);
         return { output: readFileSync(output, 'utf8').trim(), stdout: result.stdout.trim() };
       };
-      const mode = (queue: string) =>
-        run(verify.command, {
-          QUEUE_ACTIVE: queue.replace(/^active=/, ''),
-          BASE_SHA: 'base',
-          HEAD_SHA: 'head',
-        }).stdout;
+      writeFileSync(join(dir, 'game-check-start'), '99000\n');
+      const verifyEnv = (queue: string) => ({
+        QUEUE_ACTIVE: queue.replace(/^active=/, ''),
+        BASE_SHA: 'base',
+        HEAD_SHA: 'head',
+        RUNNER_TEMP: dir,
+        TEST_BUN: process.execPath,
+      });
+      const mode = (queue: string) => run(verify.command, verifyEnv(queue)).stdout;
       for (const [rules, expected] of [
         ['[{"type":"required_status_checks"},{"type":"merge_queue"}]', 'selected'],
         ['[{"type":"required_status_checks"}]', 'full'],
         ['error', 'full'],
+        ['stalled', 'full'],
       ]) {
         const queue = run(lookup.command, {
           GH_REPO: 'fixture/game',
@@ -579,6 +821,69 @@ void test(
         assert.equal(mode(queue.output), expected, rules);
       }
       assert.equal(mode(''), 'full', 'events that skip lookup run every check');
+
+      const clockEnv = {
+        RUNNER_TEMP: dir,
+        GITHUB_REPOSITORY: 'fixture/game',
+        GITHUB_RUN_ID: '23',
+        GITHUB_RUN_ATTEMPT: '1',
+        TEST_BUN: process.execPath,
+      };
+      rmSync(join(dir, 'game-check-start'));
+      run(startClock.command, clockEnv);
+      assert.equal(mode('active=true'), 'selected', 'a timestamp arriving during the wait is accepted');
+
+      for (const clockApi of ['transient', 'missing', 'stalled']) {
+        rmSync(join(dir, 'game-check-start'));
+        run(startClock.command, { ...clockEnv, CLOCK_API: clockApi });
+        assert.equal(mode(''), 'full', `verification recovers after a ${clockApi} first clock response`);
+        rmSync(join(dir, 'first-clock-attempt'));
+      }
+
+      rmSync(join(dir, 'game-check-start'));
+      run(startClock.command, { ...clockEnv, CLOCK_API: 'error' });
+      const failed = run(verify.command, verifyEnv(''), 1);
+      assert.match(failed.stdout, /clock API failed/);
+      assert.match(failed.stdout, /GitHub job start time is unavailable/);
+
+      rmSync(join(dir, 'game-check-start.failed'));
+      const expired = run(verify.command, { ...verifyEnv(''), MOCK_NOW: '115000' }, 1);
+      assert.match(expired.stdout, /GitHub job start time is unavailable/);
+
+      const enforceEnv = { RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: output, CHECKOUT_OUTCOME: 'success' };
+      assert.equal(run(enforce.command, enforceEnv).output, '');
+      writeFileSync(join(dir, 'game-check-start'), '99000\n');
+      assert.match(
+        run(enforce.command, enforceEnv).output,
+        /runner elapsed before artifact handling: 1000 ms/,
+      );
+      const belowBudget = run(enforce.command, { ...enforceEnv, MOCK_NOW: '131999' });
+      assert.match(belowBudget.output, /runner elapsed before artifact handling: 32999 ms/);
+      const overBudget = run(enforce.command, { ...enforceEnv, MOCK_NOW: '132000' }, 1);
+      assert.match(
+        overBudget.output,
+        /runner elapsed before artifact handling: 33000 ms \(33000 ms validation cutoff\)/,
+      );
+      const cutoffMessage = /reached the 33 s validation cutoff\./;
+      assert.match(overBudget.stdout, cutoffMessage);
+      const checkoutOverrun = run(
+        enforce.command,
+        { ...enforceEnv, MOCK_NOW: '114000', CHECKOUT_OUTCOME: 'failure' },
+        1,
+      );
+      assert.match(checkoutOverrun.stdout, /Setup budget: checkout failed after the 15000 ms limit/);
+      const setupMessage = /Setup budget: failed before verification \(15000 ms limit\)\./;
+      const expiredCheckout = run(verify.command, { ...verifyEnv(''), MOCK_NOW: '114000' }, 1);
+      assert.match(expiredCheckout.stdout, setupMessage);
+      const stalledBootstrap = run(verify.command, { ...verifyEnv(''), BUN_BOOTSTRAP: 'stalled' }, 124);
+      assert.match(stalledBootstrap.stdout, /Pinned Bun installation started/);
+      assert.match(stalledBootstrap.stdout, setupMessage);
+      const failedBootstrap = run(verify.command, { ...verifyEnv(''), BUN_BOOTSTRAP: '9' }, 9);
+      assert.doesNotMatch(failedBootstrap.stdout, setupMessage);
+      assert.match(
+        run(verify.command, { ...verifyEnv(''), AFTER_BUN_NOW: '132000' }, 1).stdout,
+        cutoffMessage,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -675,6 +980,7 @@ void test('distribution gate compares the generated file with the committed stan
       spawnSync(process.execPath, [script, 'selected', base, head, ...options], {
         cwd: dir,
         encoding: 'utf8',
+        env: { ...process.env, GAME_CHECK_STARTED_MS: '' },
       });
     const expectParityFailure = () => {
       const result = check('--check-committed');
@@ -689,7 +995,7 @@ void test('distribution gate compares the generated file with the committed stan
     git('add', 'play.html');
     const local = check();
     assert.equal(local.status, 0, local.stderr);
-    assert.match(local.stdout, /^Distribution: passed$/m);
+    assert.match(local.stdout, /^Distribution: passed in \d+ ms$/m);
     expectParityFailure();
     git('restore', '--source=HEAD', '--staged', '--worktree', 'play.html');
     writeFileSync(join(dir, 'generated.html'), 'standalone\n');

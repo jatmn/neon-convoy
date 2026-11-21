@@ -10,19 +10,51 @@ const [mode = 'full', base, head, ...options] = process.argv.slice(2);
 const checks = validationChecks(mode, base, head);
 const results = new Map<string, Promise<CheckResult>>();
 const exec = promisify(execFile);
+const jobStartedAt = process.env.GAME_CHECK_STARTED_MS;
+const setupStartedAt = Number(jobStartedAt);
+const setupBudget = 15_000;
+
+const budgets = new Map([
+  ['Native lint', 1_000],
+  ['Format', 1_000],
+  ['TypeScript', 5_000],
+  ['Unit tests', 30_000],
+  ['Browser controls', 30_000],
+  ['Distribution', 30_000],
+]);
 
 function check(name: string, start: () => Promise<void>, ...prerequisites: Promise<CheckResult>[]) {
   const result = Promise.all(prerequisites).then(async (ready): Promise<CheckResult> => {
     if (ready.some((status) => status !== 'passed')) return 'blocked';
 
     console.log(`${name}: started`);
+    const started = performance.now();
+    const budget = (jobStartedAt ? budgets.get(name) : undefined) ?? Infinity;
+    let overBudget = false;
+    const reportOverrun = () => {
+      if (overBudget) return;
+      overBudget = true;
+      const elapsed = performance.now() - started;
+      console.error(`${name}: failed (budget ${budget} ms) in ${elapsed.toFixed(0)} ms`);
+    };
+    // Keep collecting command output after a budget failure. The workflow owns termination.
+    const timer = budget === Infinity ? undefined : setTimeout(reportOverrun, budget);
     try {
       await start();
-      console.log(`${name}: passed`);
+      const elapsed = performance.now() - started;
+      if (elapsed >= budget) reportOverrun();
+      if (overBudget) return 'failed';
+      console.log(`${name}: passed in ${elapsed.toFixed(0)} ms`);
       return 'passed';
     } catch (error) {
-      console.error(`${name}: failed (${error instanceof Error ? error.message : String(error)})`);
+      const elapsed = performance.now() - started;
+      if (elapsed >= budget) reportOverrun();
+      console.error(
+        `${name}: failed (${error instanceof Error ? error.message : String(error)}) in ${elapsed.toFixed(0)} ms`,
+      );
       return 'failed';
+    } finally {
+      clearTimeout(timer);
     }
   });
   results.set(name, result);
@@ -77,18 +109,45 @@ if (checks.types) {
   void run('TypeScript', 'bun', ['check'], dependencies);
 }
 
+function remainingSetupTime() {
+  const elapsed = Date.now() - setupStartedAt;
+  return elapsed >= 0 && elapsed < setupBudget ? setupBudget - elapsed : 0;
+}
+
 const chromium =
   options.includes('--install-chromium') && needsChromium
     ? run(
         'Chromium setup',
         'bun',
         ['--bun', 'playwright', 'install', '--only-shell', 'chromium'],
-        dependencies,
+        jobStartedAt
+          ? dependencies.then((status) => (status === 'passed' && !remainingSetupTime() ? 'blocked' : status))
+          : dependencies,
       )
     : dependencies;
 
+let browserSetup = chromium;
+if (jobStartedAt) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<'expired'>((resolve) => {
+    timer = setTimeout(() => resolve('expired'), remainingSetupTime());
+  });
+  // The browser gate can fail at the deadline while installation still owns its output and result.
+  browserSetup = Promise.race([chromium, deadline]).then((status) => {
+    clearTimeout(timer);
+    const elapsed = Date.now() - setupStartedAt;
+    const withinBudget = status !== 'expired' && elapsed >= 0 && elapsed < setupBudget;
+    if (withinBudget && status !== 'passed') return 'blocked';
+    console.log(
+      `Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit ${setupBudget} ms)`,
+    );
+    return withinBudget ? 'passed' : 'failed';
+  });
+  results.set('Setup budget', browserSetup);
+}
+
 if (checks.browser) {
-  void run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], chromium);
+  void run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], browserSetup);
 }
 
 if (checks.distribution) {
@@ -112,7 +171,7 @@ if (checks.distribution) {
     'bun',
     ['run', 'test:distribution', '--output=test-results/distribution'],
     build,
-    chromium,
+    browserSetup,
   );
 }
 
