@@ -1,16 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import {
-  appendFileSync,
-  lstatSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  statSync,
-} from 'node:fs';
+import { appendFileSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 declare const Bun: { JSONC: { parse(text: string): unknown } };
@@ -68,6 +60,8 @@ function inheritedResolverChanged(paths: string[]) {
 function simulationImports(paths: string[]) {
   if (paths.length === 0) return false;
   try {
+    // A changed link can redirect an import to a fallback that bypasses the link in the head graph.
+    if (paths.some((path) => lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink())) return true;
     const directory = mkdtempSync(join(tmpdir(), 'neon-simulation-'));
     try {
       const metadata = join(directory, 'bundle.json');
@@ -89,14 +83,7 @@ function simulationImports(paths: string[]) {
       for (const { imports } of Object.values(graph.inputs)) {
         if (imports.some((entry) => entry.external && !isBuiltin(entry.path))) return true;
       }
-      return paths.some((path) => {
-        if (Object.hasOwn(graph.inputs, path)) return true;
-        if (!lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
-        // Bun records resolved files. A directory alias can reach files through nested links.
-        if (statSync(path).isDirectory()) return true;
-        const target = relative(process.cwd(), realpathSync(path)).replaceAll(sep, '/');
-        return Object.hasOwn(graph.inputs, target);
-      });
+      return paths.some((path) => Object.hasOwn(graph.inputs, path));
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

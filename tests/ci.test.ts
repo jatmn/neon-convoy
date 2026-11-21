@@ -329,7 +329,15 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
         join(dir, 'src/engine.ts'),
         'import terrain from "@terrain"; export const cellSize = terrain.cellSize;',
       );
+      symlinkSync('terrain.json', join(dir, 'public/terrain-file'));
       const beforeTypeChange = commit();
+      rmSync(directoryLink);
+      symlinkSync('terrain-file', directoryLink);
+      assert.deepEqual(
+        run(beforeTypeChange, commit()),
+        { ...game, types: false },
+        'retargeting a directory link to a file through another link can redirect an import to a fallback',
+      );
       rmSync(directoryLink);
       writeFileSync(directoryLink, 'regular file');
       assert.deepEqual(
