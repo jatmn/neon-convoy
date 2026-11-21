@@ -4,6 +4,9 @@ Install Playwright's pinned Chromium and run `bun run verify` to validate a rele
 The verifier runs `bun run lint` for the Landmines testing rules. See the
 [README validation commands](../README.md#validate) for setup and the full list.
 
+Run `bun scripts/check-browser-deadline.ts` to check failure reporting and
+trace finalization with a deliberately stalled browser font.
+
 ## TypeScript migration results
 
 TypeScript migration validated on September 29, 2026 with Node 22.23.1 and the Chromium revision installed by pinned Playwright 1.63.0.

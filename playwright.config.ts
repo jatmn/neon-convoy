@@ -14,7 +14,8 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
+    // The shared page fixture caps failure screenshots when the job is timed.
+    screenshot: jobDeadline ? 'off' : 'only-on-failure',
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
       : {},
