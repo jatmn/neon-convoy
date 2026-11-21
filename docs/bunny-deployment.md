@@ -64,12 +64,12 @@ management page.
 2. Copy the CNAME target shown there. In the DNS zone for your domain
    (`example.com` in this example), add:
 
-   | Field | Value |
-   | --- | --- |
-   | Type | `CNAME` |
-   | Name / Host | `game` |
+   | Field          | Value                                                      |
+   | -------------- | ---------------------------------------------------------- |
+   | Type           | `CNAME`                                                    |
+   | Name / Host    | `game`                                                     |
    | Target / Value | Your game Pull Zone hostname, e.g. `neon-convoy.b-cdn.net` |
-   | TTL | `300` seconds |
+   | TTL            | `300` seconds                                              |
 
    The target is a hostname without `https://` or a path. Use ordinary DNS
    resolution for this CNAME. If using Bunny DNS, leave
@@ -79,6 +79,7 @@ management page.
    with the hostname mapping. If using Cloudflare DNS, set the record to
    **DNS only**. Preserve the existing apex and other DNS records; you do not
    need to change nameservers to connect this subdomain.
+
 3. After the record propagates, return to the Pull Zone hostname and choose
    **Verify & Activate SSL** (or **Enable → Add Free Let's Encrypt Certificate**).
 4. Once HTTPS works, enable **Force SSL** for the game hostname.
@@ -106,9 +107,9 @@ purges. In the dedicated Pull Zone's **Edge Rules**, add one rule with a
 all hostnames attached to this game Pull Zone, including query strings.
 Add these actions:
 
-| Action | Value |
-| --- | --- |
-| **Override Cache Time** | `0` seconds (bypass edge caching) |
+| Action                  | Value                                    |
+| ----------------------- | ---------------------------------------- |
+| **Override Cache Time** | `0` seconds (bypass edge caching)        |
 | **Set Response Header** | Header `Cache-Control`, value `no-cache` |
 
 Save and enable the rule. Keep hashed JS/CSS assets cacheable. Bunny documents
@@ -169,9 +170,9 @@ On the **`bunny-production` environment page**, scroll to
 **Environment variables**. For each row below, click **Add variable**, enter
 the **Name** and **Value**, then click **Add variable** to save:
 
-| Name | Value |
-| --- | --- |
-| `BUNNY_STORAGE_ZONE` | Exact storage zone name, e.g. `neon-convoy` |
+| Name                 | Value                                                                          |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `BUNNY_STORAGE_ZONE` | Exact storage zone name, e.g. `neon-convoy`                                    |
 | `BUNNY_STORAGE_HOST` | Regional endpoint hostname, e.g. `ny.storage.bunnycdn.com`; no scheme or slash |
 
 These are GitHub configuration variables read through `vars` in the workflow.
@@ -183,8 +184,8 @@ On that same environment page, under **Environment secrets**, click
 **Add secret**. Enter the following name and its secret value, then click
 **Add secret** to save:
 
-| Name | Value |
-| --- | --- |
+| Name                     | Value                                                     |
+| ------------------------ | --------------------------------------------------------- |
 | `BUNNY_STORAGE_PASSWORD` | Read/write **storage-zone password** from its Access page |
 
 Confirm both variable names and the secret name appear on the environment page.

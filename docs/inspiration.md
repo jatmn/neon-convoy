@@ -1,6 +1,6 @@
 # Design references
 
-- [Wikipedia — Lemmings (video game)](https://en.wikipedia.org/wiki/Lemmings_(video_game)): autonomous units, timed rescue quotas, limited skill assignments, terrain manipulation, and progressive levels.
+- [Wikipedia — Lemmings (video game)](<https://en.wikipedia.org/wiki/Lemmings_(video_game)>): autonomous units, timed rescue quotas, limited skill assignments, terrain manipulation, and progressive levels.
 - [Lemmings 1 (1991) Gameplay | Levels 1–60](https://www.youtube.com/watch?v=RnPXf3r5IKc): footage reference for the original game, early level teaching, obstacle readability, and the steady release of units.
 - [Lemmings full playthrough (DOS)](https://www.youtube.com/watch?v=xIuxB1oR2WQ): additional original-game footage reference.
 

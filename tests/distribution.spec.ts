@@ -6,13 +6,15 @@ import { pathToFileURL } from 'node:url';
 for (const entry of ['dist/index.html', 'play.html']) {
   test(`${entry} deploys the convoy without external game assets`, async ({ page }) => {
     const errors: string[] = [];
-    page.on('pageerror', error => errors.push(error.message));
+    page.on('pageerror', (error) => errors.push(error.message));
     // Fonts are optional; the distributable must play offline.
-    await page.route(/^https?:\/\//, route => route.abort());
+    await page.route(/^https?:\/\//, (route) => route.abort());
     if (entry.startsWith('dist/')) {
       // The production site uses module assets, so serve it through Vite preview.
       await page.unroute(/^https?:\/\//);
-      await page.route(/^https?:\/\//, route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
+      await page.route(/^https?:\/\//, (route) =>
+        new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+      );
       await page.goto('http://127.0.0.1:4174/');
     } else {
       await page.goto(pathToFileURL(resolve(entry)).href);

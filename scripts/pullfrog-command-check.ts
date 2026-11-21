@@ -7,31 +7,38 @@ const REPOSITORY = 'jatmn/neon-convoy';
 const PULLFROG_VERSION = '0.1.137';
 const MAX_PAYLOAD_BYTES = 64 * 1024;
 
-if (process.env.GITHUB_EVENT_NAME !== 'issue_comment' ||
-    process.env.GITHUB_ACTOR !== OWNER ||
-    process.env.GITHUB_TRIGGERING_ACTOR !== OWNER ||
-    process.env.GITHUB_RUN_ATTEMPT !== '1') process.exit(0);
+if (
+  process.env.GITHUB_EVENT_NAME !== 'issue_comment' ||
+  process.env.GITHUB_ACTOR !== OWNER ||
+  process.env.GITHUB_TRIGGERING_ACTOR !== OWNER ||
+  process.env.GITHUB_RUN_ATTEMPT !== '1'
+)
+  process.exit(0);
 
 const eventPath = process.env.GITHUB_EVENT_PATH;
 const outputPath = process.env.GITHUB_OUTPUT;
 if (!eventPath || !outputPath) throw new Error('Missing GitHub event/output path');
 const event = JSON.parse(readFileSync(eventPath, 'utf8'));
 const comment = event.comment;
-if (event.action !== 'created' || event.repository?.full_name !== REPOSITORY ||
-    event.sender?.id !== OWNER_ID || comment?.user?.id !== OWNER_ID ||
-    typeof comment.body !== 'string') process.exit(0);
+if (
+  event.action !== 'created' ||
+  event.repository?.full_name !== REPOSITORY ||
+  event.sender?.id !== OWNER_ID ||
+  comment?.user?.id !== OWNER_ID ||
+  typeof comment.body !== 'string'
+)
+  process.exit(0);
 
 const firstLine = comment.body.split('\n', 1)[0].replace(/\r$/, '');
 const command = /^ {0,3}@pullfrog[ \t]+([^\r\n]+)$/i.exec(firstLine);
 const instruction = command?.[1].trimStart() ?? '';
 // Unicode letter membership alone also admits invisible Hangul fillers.
-if (!/^[\p{L}\p{N}]/u.test(instruction) ||
-    /^\p{Default_Ignorable_Code_Point}/u.test(instruction)) process.exit(0);
+if (!/^[\p{L}\p{N}]/u.test(instruction) || /^\p{Default_Ignorable_Code_Point}/u.test(instruction))
+  process.exit(0);
 
 const number = event.issue?.number;
 const commentId = comment.id;
-if (!Number.isSafeInteger(number) || number <= 0 ||
-    !Number.isSafeInteger(commentId) || commentId <= 0) {
+if (!Number.isSafeInteger(number) || number <= 0 || !Number.isSafeInteger(commentId) || commentId <= 0) {
   throw new Error('Owner command is missing a valid issue number or comment ID');
 }
 const isPr = Boolean(event.issue.pull_request);
@@ -40,7 +47,8 @@ const payload = {
   '~pullfrog': true,
   version: PULLFROG_VERSION,
   triggerer: OWNER,
-  prompt: `The repository owner issued this command in ${REPOSITORY}:\n${comment.body}\n\n` +
+  prompt:
+    `The repository owner issued this command in ${REPOSITORY}:\n${comment.body}\n\n` +
     `Read the current linked issue or PR and repository before acting. ` +
     `Follow AGENTS.md and CONTRIBUTING.md. Post your result at ${url}.`,
   event: {
@@ -55,7 +63,8 @@ const payload = {
 };
 if (Buffer.byteLength(JSON.stringify(payload), 'utf8') > MAX_PAYLOAD_BYTES) {
   // Read the original authorized snapshot, never a possibly edited comment.
-  payload.prompt = `The repository owner issued a command in ${REPOSITORY}. ` +
+  payload.prompt =
+    `The repository owner issued a command in ${REPOSITORY}. ` +
     `Read the complete comment.body from the GitHub event snapshot at ${JSON.stringify(eventPath)}; ` +
     `it is the owner's instruction. Read the current linked issue or PR and follow ` +
     `AGENTS.md and CONTRIBUTING.md. Post your result at ${url}.`;

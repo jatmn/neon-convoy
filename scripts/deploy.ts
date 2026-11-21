@@ -12,7 +12,8 @@ export async function deploy(env: NodeJS.ProcessEnv = process.env, request: type
   const host = required('BUNNY_STORAGE_HOST');
   const storageKey = required('BUNNY_STORAGE_PASSWORD');
   if (!/^[a-zA-Z0-9-]+$/.test(zone)) throw new Error('Invalid storage zone name');
-  if (!/^(?:[a-z]+\.)?storage\.bunnycdn\.com$/.test(host)) throw new Error('Expected a Bunny storage hostname without https:// or a path');
+  if (!/^(?:[a-z]+\.)?storage\.bunnycdn\.com$/.test(host))
+    throw new Error('Expected a Bunny storage hostname without https:// or a path');
 
   const files: string[] = [];
   async function collect(directory: string) {
@@ -30,8 +31,10 @@ export async function deploy(env: NodeJS.ProcessEnv = process.env, request: type
   files.splice(files.indexOf('index.html'), 1);
   files.push('index.html');
   const types: Record<string, string> = {
-    html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8',
-    css: 'text/css; charset=utf-8', svg: 'image/svg+xml',
+    html: 'text/html; charset=utf-8',
+    js: 'text/javascript; charset=utf-8',
+    css: 'text/css; charset=utf-8',
+    svg: 'image/svg+xml',
   };
   for (const file of files) {
     const path = file.split('/').map(encodeURIComponent).join('/');

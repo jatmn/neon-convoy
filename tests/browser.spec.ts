@@ -6,12 +6,12 @@ async function clickWorld(page: Page, x: number, y: number) {
   await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Battlefield has no bounding box');
-  await canvas.click({ position: { x: x / 1200 * box.width, y: y / 600 * box.height } });
+  await canvas.click({ position: { x: (x / 1200) * box.width, y: (y / 600) * box.height } });
 }
 
 test('campaign loads ten playable sectors with a rendered battlefield', async ({ page }) => {
   const errors: string[] = [];
-  page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: 'First Light' })).toBeVisible();
@@ -70,12 +70,14 @@ test('play and pause controls stay stable between game state changes', async ({ 
   async function expectStableControl(label: string) {
     await expect(control).toHaveAccessibleName(label);
     await expect(control).toHaveText(label);
-    const mutations = await control.evaluate(async button => {
+    const mutations = await control.evaluate(async (button) => {
       let count = 0;
-      const observer = new MutationObserver(records => { count += records.length; });
+      const observer = new MutationObserver((records) => {
+        count += records.length;
+      });
       observer.observe(button, { attributes: true, childList: true, characterData: true, subtree: true });
       for (let i = 0; i < 4; i++) {
-        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
       observer.disconnect();
       return count;
@@ -165,7 +167,11 @@ test('a successful rescue saves progress and opens the next sector', async ({ pa
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Convoy extracted.' })).toBeVisible();
   await expect(page.locator('#campaign-complete')).toContainText('1 / 10');
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('neon-convoy-progress') || '{}')['1'].completed)).toBe(true);
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem('neon-convoy-progress') || '{}')['1'].completed,
+    ),
+  ).toBe(true);
   await page.getByRole('button', { name: /Next sector/ }).click();
   await expect(page.getByRole('heading', { name: 'Skybridge' })).toBeVisible();
   await expect(page.locator('#start-banner')).toBeVisible();
