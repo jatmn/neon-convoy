@@ -7,12 +7,19 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checksFor, validationChecks } from '../scripts/ci.ts';
 
-const none = { types: false, simulation: false, browser: false, distribution: false, deployment: false };
-const game = { ...none, types: true, simulation: true, browser: true, distribution: true };
+const ownedNone = { types: false, browser: false, distribution: false, deployment: false };
+const ownedGame = { ...ownedNone, types: true, browser: true, distribution: true };
+const none = { ...ownedNone, simulation: false };
+const game = { ...ownedGame, simulation: true };
 const all = { ...game, deployment: true };
 
-void test('documentation and screenshots skip game checks', () => {
-  assert.deepEqual(checksFor(['README.md', 'docs/validation.md', 'docs/screenshots/mobile.png']), none);
+function assertOwnedChecks(paths: string[], expected: typeof ownedNone) {
+  const { simulation: _simulation, ...owned } = checksFor(paths);
+  assert.deepEqual(owned, expected, paths.join(', '));
+}
+
+void test('documentation and screenshots have no owned checks', () => {
+  assertOwnedChecks(['README.md', 'docs/validation.md', 'docs/screenshots/mobile.png'], ownedNone);
   assert.deepEqual(checksFor([]), none);
 });
 
@@ -23,6 +30,9 @@ void test('shared tooling and unclassified paths validate every surface', () => 
     'bunfig.toml',
     'scripts/install-bun.sh',
     'tsconfig.json',
+    'public/terrain/tsconfig.json',
+    'public/terrain/tsconfig.paths.json',
+    'public/terrain/jsconfig.json',
     '.github/workflows/check.yml',
     '.oxlintrc.json',
     '.oxlintrc.native.json',
@@ -36,19 +46,18 @@ void test('shared tooling and unclassified paths validate every surface', () => 
   }
 });
 
-void test('simulation changes exercise their browser and build consumers', () => {
-  for (const path of ['src/engine.ts', 'src/levels.ts', 'src/types.ts'])
-    assert.deepEqual(checksFor([path]), game, path);
+void test('engine and level changes exercise their browser and build consumers', () => {
+  for (const path of ['src/engine.ts', 'src/levels.ts']) assertOwnedChecks([path], ownedGame);
+  assert.deepEqual(checksFor(['src/types.ts']), game);
   assert.deepEqual(checksFor(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
 });
 
 void test('UI and assets exercise browser and distribution', () => {
   for (const path of ['src/main.ts', 'src/audio.ts', 'src/renderer.ts']) {
-    const checks = checksFor([path]);
-    assert.deepEqual(checks, { ...game, simulation: checks.simulation }, path);
+    assertOwnedChecks([path], ownedGame);
   }
   for (const path of ['src/style.css', 'index.html', 'favicon.svg', '.gitattributes', 'public/texture.png']) {
-    assert.deepEqual(checksFor([path]), { ...none, browser: true, distribution: true }, path);
+    assertOwnedChecks([path], { ...ownedNone, browser: true, distribution: true });
   }
 });
 
@@ -56,22 +65,22 @@ void test('auto-discovered Vite and shared Playwright configs exercise browser a
   for (const name of ['vite', 'playwright']) {
     for (const extension of ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs']) {
       const path = `${name}.config.${extension}`;
-      assert.deepEqual(checksFor([path]), { ...game, simulation: false }, path);
+      assertOwnedChecks([path], ownedGame);
     }
   }
 });
 
-void test('test and packaging changes only run their related checks', () => {
-  assert.deepEqual(checksFor(['tests/browser.spec.ts']), { ...none, types: true, browser: true });
+void test('test and packaging changes select their owned checks', () => {
+  assertOwnedChecks(['tests/browser.spec.ts'], { ...ownedNone, types: true, browser: true });
   for (const path of [
     'scripts/standalone.ts',
     'tests/distribution.spec.ts',
     'playwright.distribution.config.ts',
   ]) {
-    assert.deepEqual(checksFor([path]), { ...none, types: true, distribution: true }, path);
+    assertOwnedChecks([path], { ...ownedNone, types: true, distribution: true });
   }
   for (const path of ['LICENSE', 'play.html'])
-    assert.deepEqual(checksFor([path]), { ...none, distribution: true });
+    assertOwnedChecks([path], { ...ownedNone, distribution: true });
   assert.deepEqual(checksFor(['tests/engine.test.ts', 'play.html']), {
     ...none,
     types: true,
@@ -80,13 +89,13 @@ void test('test and packaging changes only run their related checks', () => {
   });
 });
 
-void test('deployment and routing changes skip unrelated game tests', () => {
+void test('deployment and routing changes select their owned checks', () => {
   for (const path of ['scripts/deploy.ts', 'tests/deploy.test.ts']) {
-    assert.deepEqual(checksFor([path]), { ...none, types: true, deployment: true });
+    assertOwnedChecks([path], { ...ownedNone, types: true, deployment: true });
   }
-  assert.deepEqual(checksFor(['.github/workflows/deploy.yml']), { ...none, deployment: true });
+  assertOwnedChecks(['.github/workflows/deploy.yml'], { ...ownedNone, deployment: true });
   for (const path of ['scripts/ci.ts', 'tests/ci.test.ts'])
-    assert.deepEqual(checksFor([path]), { ...none, types: true });
+    assertOwnedChecks([path], { ...ownedNone, types: true });
 });
 
 void test('CI entry point handles PR base divergence, deletions, renames and full validation', () => {
@@ -196,6 +205,20 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
       'changing only a transitive JSON input selects simulation',
     );
 
+    const terrainPackage = join(dir, 'public/terrain-package');
+    mkdirSync(terrainPackage);
+    writeFileSync(join(terrainPackage, 'v1.json'), '{"cellSize":4}');
+    writeFileSync(join(terrainPackage, 'v2.json'), '{"cellSize":8}');
+    const manifest = join(terrainPackage, 'package.json');
+    writeFileSync(manifest, '{"main":"./v1.json"}');
+    writeFileSync(
+      join(dir, 'src/engine.ts'),
+      'import terrain from "../public/terrain-package"; export const cellSize = terrain.cellSize;',
+    );
+    const beforeManifest = commit();
+    writeFileSync(manifest, '{"main":"./v2.json"}');
+    assert.deepEqual(run(beforeManifest, commit()), all, 'a nested manifest can redirect a simulation input');
+
     if (process.platform !== 'win32') {
       writeFileSync(join(dir, 'src/levels-v1.ts'), 'export const cellSize = 4;');
       writeFileSync(join(dir, 'src/levels-v2.ts'), 'export const cellSize = 8;');
@@ -226,6 +249,18 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
         'retargeting a directory link selects simulation even if a nested link resolves outside the directory',
       );
     }
+
+    writeFileSync(
+      join(dir, 'tests/engine.test.ts'),
+      'const { cellSize } = await import("../src/engine.ts"); console.log(cellSize);',
+    );
+    const computedImport = commit();
+    writeFileSync(join(dir, 'README.md'), 'documentation');
+    assert.deepEqual(
+      run(computedImport, commit()),
+      { ...none, simulation: true },
+      'a computed graph import selects simulation for an otherwise unrelated change',
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

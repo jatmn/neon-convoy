@@ -15,6 +15,8 @@ import { pathToFileURL } from 'node:url';
 
 const fullChecks = { types: true, simulation: true, browser: true, distribution: true, deployment: true };
 
+// Resolver configs can redirect imports without appearing in Bun's metafile.
+const resolverConfig = /(?:^|\/)(?:package|[jt]sconfig(?:\.[^/]+)?)\.json$/;
 const documentedInputs = /^(?:[^/]+\.md|docs\/.*\.md|docs\/screenshots\/[^/]+\.(?:png|jpg|webp))$/;
 const appEntries = /^(?:index\.html|favicon\.svg|vite\.config\.[cm]?[jt]s|\.gitattributes)$/;
 const sharedPlaywrightConfig = /^playwright\.config\.[cm]?[jt]s$/;
@@ -71,6 +73,7 @@ export function checksFor(paths: string[]) {
     paths.some(
       (path) =>
         path === 'AGENTS.md' ||
+        resolverConfig.test(path) ||
         (!documentedInputs.test(path) && !ownedInputs.some((pattern) => pattern.test(path))),
     )
   )
