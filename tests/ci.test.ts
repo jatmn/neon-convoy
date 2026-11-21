@@ -504,11 +504,11 @@ void test(
 
       const failed = run('1', 'full', '', '');
       assert.equal(failed.status, 1, failed.stderr);
-      assert.match(failed.stdout, /^Unit tests: passed in \d+ ms$/m);
+      assert.doesNotMatch(failed.stdout, /^Unit tests: started$/m);
       assert.match(failed.stderr, /^Failed game checks: Dependency install$/m);
       assert.match(
         failed.stderr,
-        /^Blocked game checks: Test lint, Native lint, TypeScript, Chromium setup, Browser controls, Production build, Standalone parity, Distribution$/m,
+        /^Blocked game checks: Unit tests, Test lint, Native lint, TypeScript, Chromium setup, Browser controls, Production build, Standalone parity, Distribution$/m,
       );
       assert.equal(readFileSync(join(dir, 'installs'), 'utf8'), 'install\ninstall\n');
     } finally {

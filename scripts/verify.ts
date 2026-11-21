@@ -98,14 +98,19 @@ if (full) {
   if (checks.simulation) unitArgs.push('tests/engine.test.ts');
   if (checks.deployment) unitArgs.push('tests/deploy.test.ts');
 }
-// Bun's CI mode rejects focused tests, including during full local verification.
-void check('Unit tests', () => spawnCommand('bun', unitArgs, full ? { ...process.env, CI: '1' } : undefined));
-void run('Format', 'bun', ['fmt', '--check']);
 const needsChromium = checks.browser || checks.distribution;
 const dependencies =
   options.includes('--install-dependencies') && (checks.types || needsChromium)
     ? run('Dependency install', 'bun', ['install', '--frozen-lockfile'])
     : Promise.resolve<CheckResult>('passed');
+
+// Full discovery includes the Playwright reporter regression and rejects focused Bun tests.
+void check(
+  'Unit tests',
+  () => spawnCommand('bun', unitArgs, full ? { ...process.env, CI: '1' } : undefined),
+  ...(full ? [dependencies] : []),
+);
+void run('Format', 'bun', ['fmt', '--check']);
 
 if (checks.types) {
   void run('Test lint', 'bun', ['run', 'lint'], dependencies);
