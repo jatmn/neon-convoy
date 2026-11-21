@@ -27,22 +27,32 @@ function check(name: string, start: () => Promise<void>, ...prerequisites: Promi
 
     console.log(`${name}: started`);
     const started = performance.now();
+    const budget = (jobStartedAt ? budgets.get(name) : undefined) ?? Infinity;
+    let overBudget = false;
+    const reportOverrun = () => {
+      if (overBudget) return;
+      overBudget = true;
+      const elapsed = performance.now() - started;
+      console.error(`${name}: failed (budget ${budget} ms) in ${elapsed.toFixed(0)} ms`);
+    };
+    // Keep collecting command output after a budget failure. The workflow owns termination.
+    const timer = budget === Infinity ? undefined : setTimeout(reportOverrun, budget);
     try {
       await start();
       const elapsed = performance.now() - started;
-      const budget = budgets.get(name) ?? Infinity;
-      if (jobStartedAt && elapsed >= budget) {
-        console.error(`${name}: failed (budget ${budget} ms) in ${elapsed.toFixed(0)} ms`);
-        return 'failed';
-      }
+      if (elapsed >= budget) reportOverrun();
+      if (overBudget) return 'failed';
       console.log(`${name}: passed in ${elapsed.toFixed(0)} ms`);
       return 'passed';
     } catch (error) {
       const elapsed = performance.now() - started;
+      if (elapsed >= budget) reportOverrun();
       console.error(
         `${name}: failed (${error instanceof Error ? error.message : String(error)}) in ${elapsed.toFixed(0)} ms`,
       );
       return 'failed';
+    } finally {
+      clearTimeout(timer);
     }
   });
   results.set(name, result);

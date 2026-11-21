@@ -1,7 +1,16 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -514,36 +523,65 @@ void test(
   () => {
     const dir = mkdtempSync(join(tmpdir(), 'neon-budget-'));
     const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
+    const budgetLog = join(dir, 'budget.log');
     try {
       writeFileSync(
         join(dir, 'bun'),
-        '#!/bin/sh\nif [ "$1:$2:$SLOW_FORMAT" = "fmt:--check:true" ]; then sleep 1.1; fi\n',
+        `#!/bin/sh
+case "$1:$2:$FORMAT_FIXTURE" in
+  fmt:--check:slow) sleep 1.1 ;;
+  fmt:--check:stall)
+    attempts=0
+    while [ "$attempts" -lt 50 ]; do
+      if grep -q '^Format: failed (budget 1000 ms)' "$BUDGET_LOG"; then
+        echo "Formatter saw budget failure before exiting"
+        exit 0
+      fi
+      attempts=$((attempts + 1))
+      sleep 0.05
+    done
+    exit 9
+    ;;
+esac
+`,
         { mode: 0o755 },
       );
-      const run = (started: string, slowFormat = true) =>
-        spawnSync(process.execPath, [script], {
-          cwd: dir,
-          encoding: 'utf8',
-          env: {
-            ...process.env,
-            PATH: `${dir}:${process.env.PATH}`,
-            CI: '1',
-            GAME_CHECK_STARTED_MS: started,
-            SLOW_FORMAT: String(slowFormat),
-          },
-        });
-      const local = run('');
+      const run = (started: string, format: string) => {
+        const output = openSync(budgetLog, 'w');
+        try {
+          const result = spawnSync(process.execPath, [script], {
+            cwd: dir,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', output],
+            timeout: 5_000,
+            env: {
+              ...process.env,
+              PATH: `${dir}:${process.env.PATH}`,
+              CI: '1',
+              GAME_CHECK_STARTED_MS: started,
+              FORMAT_FIXTURE: format,
+              BUDGET_LOG: budgetLog,
+            },
+          });
+          assert.ifError(result.error);
+          return { status: result.status, stdout: result.stdout, stderr: readFileSync(budgetLog, 'utf8') };
+        } finally {
+          closeSync(output);
+        }
+      };
+      const local = run('', 'slow');
       assert.equal(local.status, 0, local.stderr);
       assert.match(local.stdout, /^Format: passed in \d+ ms$/m);
-      const hosted = run(String(Date.now()));
+      const hosted = run(String(Date.now()), 'stall');
       assert.equal(hosted.status, 1, hosted.stderr);
       assert.match(hosted.stderr, /^Format: failed \(budget 1000 ms\) in \d+ ms$/m);
+      assert.match(hosted.stdout, /^Formatter saw budget failure before exiting$/m);
       assert.match(hosted.stderr, /^Failed game checks: Format$/m);
       assert.match(hosted.stdout, /^Setup budget: passed/m);
       assert.match(hosted.stdout, /^Browser controls: passed/m);
       assert.match(hosted.stdout, /^Distribution: passed/m);
 
-      const expired = run(String(Date.now() - 15_000), false);
+      const expired = run(String(Date.now() - 15_000), 'quick');
       assert.equal(expired.status, 1, expired.stderr);
       assert.match(expired.stdout, /^Setup budget: failed/m);
       assert.match(expired.stdout, /^Unit tests: passed/m);
@@ -598,10 +636,11 @@ if [ "$1:$2" = "api:repos/fixture/game/actions/runs/23/attempts/1/jobs" ]; then
     echo "clock API failed" >&2
     exit 1
   fi
-  if [ "$CLOCK_API" = transient ] || [ "$CLOCK_API" = missing ]; then
+  if [ "$CLOCK_API" = transient ] || [ "$CLOCK_API" = missing ] || [ "$CLOCK_API" = stalled ]; then
     if [ ! -f "$RUNNER_TEMP/first-clock-attempt" ]; then
       touch "$RUNNER_TEMP/first-clock-attempt"
       if [ "$CLOCK_API" = transient ]; then exit 1; fi
+      if [ "$CLOCK_API" = stalled ]; then exec "$TEST_BUN" -e 'await Bun.sleep(5000)'; fi
       exit 0
     fi
   fi
@@ -656,14 +695,13 @@ esac
       writeFileSync(
         join(dir, 'timeout'),
         `#!/bin/sh
-duration="$1 $2 $3"
-shift 2
-case "$duration" in
-  "--kill-after=1s 32.000s bun") exec "$@" ;;
-  "--kill-after=1s 14s bash")
-    exec "$TEST_BUN" -e 'const child = Bun.spawn(process.argv.slice(1), { stdout: "inherit", stderr: "inherit", timeout: 750 }); process.exit(await child.exited);' "$@" ;;
+case "$1 $2 $3 $4" in
+  "--kill-after=1s 32.000s bun scripts/verify.ts") shift 2; exec "$@" ;;
+  "--kill-after=1s 14s bash -c") shift 2; milliseconds=900 ;;
+  "--foreground --kill-after=1s 3s gh") shift 3; milliseconds=200 ;;
   *) exit 2 ;;
 esac
+FIXTURE_TIMEOUT="$milliseconds" exec "$TEST_BUN" -e 'const child = Bun.spawn(process.argv.slice(1), { stdout: "inherit", stderr: "inherit", timeout: Number(process.env.FIXTURE_TIMEOUT) }); process.exit(await child.exited);' "$@"
 `,
         { mode: 0o755 },
       );
@@ -712,7 +750,7 @@ esac
       run(startClock.command, clockEnv);
       assert.equal(mode('active=true'), 'selected', 'a timestamp arriving during the wait is accepted');
 
-      for (const clockApi of ['transient', 'missing']) {
+      for (const clockApi of ['transient', 'missing', 'stalled']) {
         rmSync(join(dir, 'game-check-start'));
         run(startClock.command, { ...clockEnv, CLOCK_API: clockApi });
         assert.equal(mode(''), 'full', `verification recovers after a ${clockApi} first clock response`);

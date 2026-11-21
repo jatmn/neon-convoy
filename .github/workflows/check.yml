@@ -29,7 +29,9 @@ jobs:
           (
             set -euo pipefail
             if timeout --kill-after=1s 14s bash -c '
-              until started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" --jq "$1") &&
+              # Keep each request in the outer watchdog process group.
+              until started=$(timeout --foreground --kill-after=1s 3s gh api \
+                "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" --jq "$1") &&
                 [[ -n "$started" ]] && date -u -d "$started" +%s%3N; do
                 sleep 0.25
               done
