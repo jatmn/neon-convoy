@@ -17,64 +17,88 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ env.BENCHMARK_REVISION }}
+          path: warm
           persist-credentials: false
-      - name: Install pinned Bun
-        run: bash scripts/install-bun.sh
       - name: Populate exact dependency tree
+        working-directory: warm
+        run: |
+          bash scripts/install-bun.sh
+      - name: Install locked dependencies
+        working-directory: warm
         run: bun install --frozen-lockfile
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |
-            node_modules/*
-            !node_modules/.vite
-            !node_modules/.vite-temp
-          key: pr37-bench-${{ github.run_id }}-${{ runner.arch }}-${{ hashFiles('package.json', 'bun.lock', 'bunfig.toml', 'scripts/install-bun.sh') }}
+            warm/node_modules/*
+            !warm/node_modules/.vite
+            !warm/node_modules/.vite-temp
+          key: pr37-paired-${{ github.run_id }}-${{ runner.arch }}-${{ hashFiles('warm/package.json', 'warm/bun.lock', 'warm/bunfig.toml', 'warm/scripts/install-bun.sh') }}
 
-  compare:
-    name: ${{ matrix.path }} trial ${{ matrix.trial }}
+  paired:
+    name: Hosted pair ${{ matrix.trial }}
     needs: seed
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
-        path: [restore, direct]
-        trial: [1, 2, 3]
+        trial: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ env.BENCHMARK_REVISION }}
+          path: warm
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.BENCHMARK_REVISION }}
+          path: direct
           persist-credentials: false
       - name: Install pinned Bun
+        working-directory: warm
         run: bash scripts/install-bun.sh
-      - name: Start timing
-        id: start
+      - name: Run paired verifier commands
         run: |
-          echo "revision=$(git rev-parse HEAD) image=${ImageOS:-unknown}/${ImageVersion:-unknown} arch=$(uname -m)"
-          echo "ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
-      - name: Restore exact dependencies
-        id: dependencies
-        if: matrix.path == 'restore'
+          printf 'revision=%s image=%s/%s arch=%s\n' "$(git -C warm rev-parse HEAD)" "${ImageOS:-unknown}" "${ImageVersion:-unknown}" "$(uname -m)"
+          cat > "$RUNNER_TEMP/pr37-verify.sh" <<'SCRIPT'
+          set -euo pipefail
+          path=$1
+          start_ms=$2
+          clock_ms() { python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'; }
+          export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pr37-chromium-$path"
+          export BUN_INSTALL_CACHE_DIR="$RUNNER_TEMP/pr37-bun-$path"
+          cd "$GITHUB_WORKSPACE/$path"
+          options=()
+          if [[ "$path" == direct ]]; then
+            options+=(--install-dependencies)
+          fi
+          printf 'BENCHMARK %s start-delay-ms=%s\n' "$path" "$(( $(clock_ms) - start_ms ))"
+          bun scripts/verify.ts full "" "$BENCHMARK_REVISION" "${options[@]}" --install-chromium --check-committed
+          printf 'BENCHMARK %s elapsed-ms=%s\n' "$path" "$(( $(clock_ms) - start_ms ))"
+          SCRIPT
+      - name: Direct install and validation first
+        if: matrix.trial == 1 || matrix.trial == 3
+        run: bash "$RUNNER_TEMP/pr37-verify.sh" direct "$(python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)')"
+      - name: Start warm restore clock
+        id: start
+        run: echo "ms=$(python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)')" >> "$GITHUB_OUTPUT"
+      - name: Restore exact dependency tree
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        id: dependencies
         with:
           path: |
-            node_modules/*
-            !node_modules/.vite
-            !node_modules/.vite-temp
-          key: pr37-bench-${{ github.run_id }}-${{ runner.arch }}-${{ hashFiles('package.json', 'bun.lock', 'bunfig.toml', 'scripts/install-bun.sh') }}
+            warm/node_modules/*
+            !warm/node_modules/.vite
+            !warm/node_modules/.vite-temp
+          key: pr37-paired-${{ github.run_id }}-${{ runner.arch }}-${{ hashFiles('warm/package.json', 'warm/bun.lock', 'warm/bunfig.toml', 'warm/scripts/install-bun.sh') }}
           fail-on-cache-miss: true
-      - name: Run identical game checks
+      - name: Validate with restored dependencies
         env:
-          START_MS: ${{ steps.start.outputs.ms }}
           CACHE_HIT: ${{ steps.dependencies.outputs.cache-hit }}
-          BENCHMARK_PATH: ${{ matrix.path }}
+          START_MS: ${{ steps.start.outputs.ms }}
         run: |
-          printf 'BENCHMARK dependency-start-ms=%s\n' "$(( $(date +%s%3N) - START_MS ))"
-          install_options=()
-          if [[ "$BENCHMARK_PATH" == restore ]]; then
-            test "$CACHE_HIT" = true
-          else
-            install_options+=(--install-dependencies)
-          fi
-          bun scripts/verify.ts full "" "$BENCHMARK_REVISION" "${install_options[@]}" --install-chromium --check-committed
-          printf 'BENCHMARK elapsed-ms=%s\n' "$(( $(date +%s%3N) - START_MS ))"
+          test "$CACHE_HIT" = true
+          bash "$RUNNER_TEMP/pr37-verify.sh" warm "$START_MS"
+      - name: Direct install and validation second
+        if: matrix.trial == 2 || matrix.trial == 4
+        run: bash "$RUNNER_TEMP/pr37-verify.sh" direct "$(python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)')"
