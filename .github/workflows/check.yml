@@ -99,7 +99,10 @@ jobs:
       - name: Enforce elapsed job budget
         if: always()
         run: |
-          read -r GAME_CHECK_STARTED_MS < "$RUNNER_TEMP/game-check-start"
+          clock="$RUNNER_TEMP/game-check-start"
+          # Run game checks reports an unavailable clock as the primary failure.
+          if [[ ! -f "$clock" ]]; then exit 0; fi
+          read -r GAME_CHECK_STARTED_MS < "$clock"
           elapsed=$(( $(date +%s%3N) - GAME_CHECK_STARTED_MS ))
           echo "Game checks runner elapsed: ${elapsed} ms (33 s plus finalization)" >> "$GITHUB_STEP_SUMMARY"
           if (( elapsed >= 33000 )); then

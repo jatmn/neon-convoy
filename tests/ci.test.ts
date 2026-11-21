@@ -515,10 +515,12 @@ void test(
     const dir = mkdtempSync(join(tmpdir(), 'neon-budget-'));
     const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
     try {
-      writeFileSync(join(dir, 'bun'), '#!/bin/sh\nif [ "$1:$2" = "fmt:--check" ]; then sleep 1.1; fi\n', {
-        mode: 0o755,
-      });
-      const run = (started: string) =>
+      writeFileSync(
+        join(dir, 'bun'),
+        '#!/bin/sh\nif [ "$1:$2:$SLOW_FORMAT" = "fmt:--check:true" ]; then sleep 1.1; fi\n',
+        { mode: 0o755 },
+      );
+      const run = (started: string, slowFormat = true) =>
         spawnSync(process.execPath, [script], {
           cwd: dir,
           encoding: 'utf8',
@@ -527,6 +529,7 @@ void test(
             PATH: `${dir}:${process.env.PATH}`,
             CI: '1',
             GAME_CHECK_STARTED_MS: started,
+            SLOW_FORMAT: String(slowFormat),
           },
         });
       const local = run('');
@@ -537,6 +540,16 @@ void test(
       assert.match(hosted.stderr, /^Format: failed \(budget 1000 ms\) in \d+ ms$/m);
       assert.match(hosted.stderr, /^Failed game checks: Format$/m);
       assert.match(hosted.stdout, /^Setup budget: passed/m);
+      assert.match(hosted.stdout, /^Browser controls: passed/m);
+      assert.match(hosted.stdout, /^Distribution: passed/m);
+
+      const expired = run(String(Date.now() - 15_000), false);
+      assert.equal(expired.status, 1, expired.stderr);
+      assert.match(expired.stdout, /^Setup budget: failed/m);
+      assert.match(expired.stdout, /^Unit tests: passed/m);
+      assert.match(expired.stdout, /^Production build: passed/m);
+      assert.doesNotMatch(expired.stdout, /^(Browser controls|Distribution): started$/m);
+      assert.match(expired.stderr, /^Blocked game checks: Browser controls, Distribution$/m);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -571,6 +584,7 @@ void test(
     const startClock = step('Start job timing lookup');
     const lookup = step('Detect the main merge queue');
     const verify = step('Run game checks');
+    const enforce = step('Enforce elapsed job budget');
     assert.match(lookup.configuration, /GH_TOKEN:/);
     assert.match(verify.configuration, /QUEUE_ACTIVE: \$\{\{ steps\.queue\.outputs\.active \}\}/);
     assert.doesNotMatch(verify.configuration, /GH_TOKEN|github\.token/);
@@ -676,6 +690,14 @@ printf "%s\\n" "$2"
       rmSync(join(dir, 'game-check-start.failed'));
       const expired = run(verify.command, { ...verifyEnv(''), MOCK_NOW: '115000' }, 1);
       assert.match(expired.stdout, /GitHub job start time is unavailable/);
+
+      const enforceEnv = { RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: output };
+      assert.equal(run(enforce.command, enforceEnv).output, '');
+      writeFileSync(join(dir, 'game-check-start'), '99000\n');
+      assert.match(run(enforce.command, enforceEnv).output, /runner elapsed: 1000 ms/);
+      const overBudget = run(enforce.command, { ...enforceEnv, MOCK_NOW: '132000' }, 1);
+      assert.match(overBudget.output, /runner elapsed: 33000 ms/);
+      assert.match(overBudget.stdout, /exceeded the 35 s job budget/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

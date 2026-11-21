@@ -107,21 +107,21 @@ const chromium =
       )
     : dependencies;
 
+let browserSetup = chromium;
 if (jobStartedAt) {
   const started = Number(jobStartedAt);
-  results.set(
-    'Setup budget',
-    chromium.then(() => {
-      const elapsed = Date.now() - started;
-      const withinBudget = elapsed >= 0 && elapsed < 15_000;
-      console.log(`Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit 15000 ms)`);
-      return withinBudget ? 'passed' : 'failed';
-    }),
-  );
+  browserSetup = chromium.then((status) => {
+    if (status !== 'passed') return 'blocked';
+    const elapsed = Date.now() - started;
+    const withinBudget = elapsed >= 0 && elapsed < 15_000;
+    console.log(`Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit 15000 ms)`);
+    return withinBudget ? 'passed' : 'failed';
+  });
+  results.set('Setup budget', browserSetup);
 }
 
 if (checks.browser) {
-  void run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], chromium);
+  void run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], browserSetup);
 }
 
 if (checks.distribution) {
@@ -145,7 +145,7 @@ if (checks.distribution) {
     'bun',
     ['run', 'test:distribution', '--output=test-results/distribution'],
     build,
-    chromium,
+    browserSetup,
   );
 }
 

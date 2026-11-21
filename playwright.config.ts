@@ -1,13 +1,15 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const jobDeadline = Number(process.env.GAME_CHECK_DEADLINE_MS);
+// Let Playwright finish reporting before the shell terminates the verifier.
+const suiteDeadline = jobDeadline ? jobDeadline - 2_000 : 0;
 
 export default defineConfig({
   testDir: './tests',
   testMatch: 'browser.spec.ts',
   timeout: 30_000,
-  // Bound setup and the entire suite before the shell terminates the verifier.
-  globalTimeout: jobDeadline ? Math.max(1, jobDeadline - Date.now() - 2_000) : undefined,
+  globalTimeout: suiteDeadline ? Math.max(1, suiteDeadline - Date.now()) : undefined,
+  metadata: { suiteDeadline },
   forbidOnly: !!process.env.CI,
   workers: process.env.CI ? 2 : undefined,
   expect: { timeout: 5_000 },
