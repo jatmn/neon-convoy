@@ -1,0 +1,80 @@
+name: PR 37 dependency cache benchmark
+on:
+  push:
+    branches: [ci/benchmark-pr37-cache-uazof8vh]
+
+permissions:
+  contents: read
+
+env:
+  BENCHMARK_REVISION: 6f4081a4168926470451db75e72bf7491932edbb
+
+jobs:
+  seed:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.BENCHMARK_REVISION }}
+          persist-credentials: false
+      - name: Install pinned Bun
+        run: bash scripts/install-bun.sh
+      - name: Populate exact dependency tree
+        run: bun install --frozen-lockfile
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            node_modules/*
+            !node_modules/.vite
+            !node_modules/.vite-temp
+          key: pr37-bench-${{ github.run_id }}-${{ runner.arch }}-${{ hashFiles('package.json', 'bun.lock', 'bunfig.toml', 'scripts/install-bun.sh') }}
+
+  compare:
+    name: ${{ matrix.path }} trial ${{ matrix.trial }}
+    needs: seed
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        path: [restore, direct]
+        trial: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.BENCHMARK_REVISION }}
+          persist-credentials: false
+      - name: Install pinned Bun
+        run: bash scripts/install-bun.sh
+      - name: Start timing
+        id: start
+        run: |
+          echo "revision=$(git rev-parse HEAD) image=${ImageOS:-unknown}/${ImageVersion:-unknown} arch=$(uname -m)"
+          echo "ms=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+      - name: Restore exact dependencies
+        id: dependencies
+        if: matrix.path == 'restore'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            node_modules/*
+            !node_modules/.vite
+            !node_modules/.vite-temp
+          key: pr37-bench-${{ github.run_id }}-${{ runner.arch }}-${{ hashFiles('package.json', 'bun.lock', 'bunfig.toml', 'scripts/install-bun.sh') }}
+          fail-on-cache-miss: true
+      - name: Run identical game checks
+        env:
+          START_MS: ${{ steps.start.outputs.ms }}
+          CACHE_HIT: ${{ steps.dependencies.outputs.cache-hit }}
+          BENCHMARK_PATH: ${{ matrix.path }}
+        run: |
+          printf 'BENCHMARK dependency-start-ms=%s\n' "$(( $(date +%s%3N) - START_MS ))"
+          install_options=()
+          if [[ "$BENCHMARK_PATH" == restore ]]; then
+            test "$CACHE_HIT" = true
+          else
+            install_options+=(--install-dependencies)
+          fi
+          bun scripts/verify.ts full "" "$BENCHMARK_REVISION" "${install_options[@]}" --install-chromium --check-committed
+          printf 'BENCHMARK elapsed-ms=%s\n' "$(( $(date +%s%3N) - START_MS ))"
