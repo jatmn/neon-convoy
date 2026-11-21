@@ -1,53 +1,99 @@
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checksFor, validationChecks } from '../scripts/ci.ts';
+import { validationChecks } from '../scripts/ci.ts';
 
-const none = { types: false, simulation: false, browser: false, distribution: false, deployment: false };
-const game = { ...none, types: true, simulation: true, browser: true, distribution: true };
+const ownedNone = { types: false, browser: false, distribution: false, deployment: false };
+const ownedGame = { ...ownedNone, types: true, browser: true, distribution: true };
+const none = { ...ownedNone, simulation: false };
+const game = { ...ownedGame, simulation: true };
 const all = { ...game, deployment: true };
+const selector = new URL('../scripts/ci.ts', import.meta.url);
 
-void test('documentation and screenshots skip game checks', () => {
-  assert.deepEqual(checksFor(['README.md', 'docs/validation.md', 'docs/screenshots/mobile.png']), none);
-  assert.deepEqual(checksFor([]), none);
+let ownershipFixture: string;
+before(() => {
+  ownershipFixture = mkdtempSync(join(tmpdir(), 'neon-ownership-'));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: ownershipFixture });
+  git('init', '-q');
+  mkdirSync(join(ownershipFixture, 'src'));
+  mkdirSync(join(ownershipFixture, 'tests'));
+  writeFileSync(join(ownershipFixture, 'tsconfig.json'), '{}');
+  writeFileSync(join(ownershipFixture, 'src/levels.ts'), 'export const cellSize = 4;');
+  writeFileSync(join(ownershipFixture, 'src/engine.ts'), 'export { cellSize } from "./levels.ts";');
+  writeFileSync(
+    join(ownershipFixture, 'tests/engine.test.ts'),
+    'import { cellSize } from "../src/engine.ts"; console.log(cellSize);',
+  );
+  git('add', '.');
+});
+after(() => {
+  if (ownershipFixture) rmSync(ownershipFixture, { recursive: true, force: true });
 });
 
-void test('shared tooling and the workflow validate every surface', () => {
+function fixtureChecks(paths: string[]) {
+  return JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        '-e',
+        'const { checksFor } = await import(process.argv[1]); console.log(JSON.stringify(checksFor(process.argv.slice(2))));',
+        selector.href,
+        ...paths,
+      ],
+      { cwd: ownershipFixture, encoding: 'utf8' },
+    ),
+  );
+}
+
+function assertOwnedChecks(paths: string[], expected: typeof ownedNone) {
+  assert.deepEqual(fixtureChecks(paths), { ...expected, simulation: false }, paths.join(', '));
+}
+
+void test('documentation and screenshots have no owned checks', () => {
+  assertOwnedChecks(['README.md', 'docs/validation.md', 'docs/screenshots/mobile.png'], ownedNone);
+  assert.deepEqual(fixtureChecks([]), none);
+});
+
+void test('shared tooling and unclassified paths validate every surface', () => {
   for (const path of [
     'package.json',
     'bun.lock',
     'bunfig.toml',
     'scripts/install-bun.sh',
     'tsconfig.json',
+    'public/terrain/tsconfig.json',
+    'public/terrain/tsconfig.paths.json',
+    'public/terrain/jsconfig.json',
     '.github/workflows/check.yml',
+    '.oxlintrc.json',
+    '.oxlintrc.native.json',
+    'AGENTS.md',
+    'fixtures/new-module.ts',
+    'docs/executable.ts',
+    'scripts/helper.mjs',
+    'src/helper.js',
   ]) {
-    assert.deepEqual(checksFor([path]), all, path);
+    assert.deepEqual(fixtureChecks([path]), all, path);
   }
 });
 
-void test('lint configuration and JavaScript changes run the types and lint job', () => {
-  for (const path of ['.oxlintrc.json', '.oxlintrc.native.json', 'scripts/helper.mjs']) {
-    assert.deepEqual(checksFor([path]), { ...none, types: true }, path);
+void test('core simulation sources select simulation, browser and distribution checks', () => {
+  for (const path of ['src/engine.ts', 'src/levels.ts', 'src/types.ts']) {
+    assert.deepEqual(fixtureChecks([path]), game, path);
   }
-  assert.deepEqual(checksFor(['src/helper.js']), { ...game, simulation: false });
+  assert.deepEqual(fixtureChecks(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
 });
 
-void test('simulation changes exercise their browser and build consumers', () => {
-  for (const path of ['src/engine.ts', 'src/levels.ts', 'src/types.ts'])
-    assert.deepEqual(checksFor([path]), game, path);
-  assert.deepEqual(checksFor(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
-});
-
-void test('UI and assets skip simulation but exercise browser and distribution', () => {
+void test('UI and assets exercise browser and distribution', () => {
   for (const path of ['src/main.ts', 'src/audio.ts', 'src/renderer.ts']) {
-    assert.deepEqual(checksFor([path]), { ...game, simulation: false }, path);
+    assertOwnedChecks([path], ownedGame);
   }
   for (const path of ['src/style.css', 'index.html', 'favicon.svg', '.gitattributes', 'public/texture.png']) {
-    assert.deepEqual(checksFor([path]), { ...none, browser: true, distribution: true }, path);
+    assertOwnedChecks([path], { ...ownedNone, browser: true, distribution: true });
   }
 });
 
@@ -55,23 +101,23 @@ void test('auto-discovered Vite and shared Playwright configs exercise browser a
   for (const name of ['vite', 'playwright']) {
     for (const extension of ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs']) {
       const path = `${name}.config.${extension}`;
-      assert.deepEqual(checksFor([path]), { ...game, simulation: false }, path);
+      assertOwnedChecks([path], ownedGame);
     }
   }
 });
 
-void test('test and packaging changes only run their related checks', () => {
-  assert.deepEqual(checksFor(['tests/browser.spec.ts']), { ...none, types: true, browser: true });
+void test('test and packaging changes select their owned checks', () => {
+  assertOwnedChecks(['tests/browser.spec.ts'], { ...ownedNone, types: true, browser: true });
   for (const path of [
     'scripts/standalone.ts',
     'tests/distribution.spec.ts',
     'playwright.distribution.config.ts',
   ]) {
-    assert.deepEqual(checksFor([path]), { ...none, types: true, distribution: true }, path);
+    assertOwnedChecks([path], { ...ownedNone, types: true, distribution: true });
   }
   for (const path of ['LICENSE', 'play.html'])
-    assert.deepEqual(checksFor([path]), { ...none, distribution: true });
-  assert.deepEqual(checksFor(['tests/engine.test.ts', 'play.html']), {
+    assertOwnedChecks([path], { ...ownedNone, distribution: true });
+  assert.deepEqual(fixtureChecks(['tests/engine.test.ts', 'play.html']), {
     ...none,
     types: true,
     simulation: true,
@@ -79,32 +125,39 @@ void test('test and packaging changes only run their related checks', () => {
   });
 });
 
-void test('deployment and routing changes skip unrelated game tests', () => {
+void test('deployment and routing changes select their owned checks', () => {
   for (const path of ['scripts/deploy.ts', 'tests/deploy.test.ts']) {
-    assert.deepEqual(checksFor([path]), { ...none, types: true, deployment: true });
+    assertOwnedChecks([path], { ...ownedNone, types: true, deployment: true });
   }
-  assert.deepEqual(checksFor(['.github/workflows/deploy.yml']), { ...none, deployment: true });
+  assertOwnedChecks(['.github/workflows/deploy.yml'], { ...ownedNone, deployment: true });
   for (const path of ['scripts/ci.ts', 'tests/ci.test.ts'])
-    assert.deepEqual(checksFor([path]), { ...none, types: true });
+    assertOwnedChecks([path], { ...ownedNone, types: true });
 });
 
 void test('CI entry point handles PR base divergence, deletions, renames and full validation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-ci-'));
-  const script = fileURLToPath(new URL('../scripts/ci.ts', import.meta.url));
+  const script = fileURLToPath(selector);
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   const commit = () => {
     git('add', '.');
     git('commit', '-qm', 'fixture');
     return git('rev-parse', 'HEAD');
   };
-  const run = (base: string, head: string) => {
+  const run = (base: string, head: string, temporaryDirectory = tmpdir()) => {
     const output = join(dir, 'outputs');
     writeFileSync(output, '');
-    const stdout = execFileSync(process.execPath, [script, base, head], {
+    const { status, stdout, stderr } = spawnSync(process.execPath, [script, base, head], {
       cwd: dir,
       encoding: 'utf8',
-      env: { ...process.env, GITHUB_OUTPUT: output },
+      env: {
+        ...process.env,
+        GITHUB_OUTPUT: output,
+        TMPDIR: temporaryDirectory,
+        TMP: temporaryDirectory,
+        TEMP: temporaryDirectory,
+      },
     });
+    assert.equal(status, 0, stderr);
     assert.equal(stdout, readFileSync(output, 'utf8'));
     return Object.fromEntries(
       stdout
@@ -120,6 +173,8 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     git('init', '-q', '-b', 'main');
     git('config', 'user.name', 'CI fixture');
     git('config', 'user.email', 'ci@example.invalid');
+    mkdirSync(join(dir, 'tests'));
+    writeFileSync(join(dir, 'tests/engine.test.ts'), 'console.log("simulation");');
     writeFileSync(join(dir, 'play.html'), 'standalone');
     writeFileSync(join(dir, '.gitignore'), 'outputs\n');
     commit();
@@ -136,9 +191,13 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     const runner = commit();
     assert.deepEqual(run(advancedBase, runner), all, 'runner-only changes exercise every surface');
     git('switch', '-q', 'docs');
-    git('mv', 'play.html', 'old-play.html');
+    git('mv', 'play.html', 'archived.md');
     const renamed = commit();
-    assert.deepEqual(run(docs, renamed), { ...none, distribution: true }, 'old path of rename is included');
+    assert.deepEqual(
+      run(docs, renamed),
+      { ...none, simulation: true, distribution: true },
+      'the removed path of a rename selects its checks and may affect simulation resolution',
+    );
     git('switch', '-q', 'main');
     git('rm', 'package.json');
     const deleted = commit();
@@ -147,6 +206,170 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
       validationChecks('full', '', docs),
       all,
       'full validation runs everything on a docs-only revision',
+    );
+    mkdirSync(join(dir, 'src'));
+    writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 4;');
+    const unlinked = commit();
+    writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 5;');
+    assert.deepEqual(
+      run(unlinked, commit()),
+      { ...game, simulation: false },
+      'an independent file does not select simulation',
+    );
+    writeFileSync(
+      join(dir, 'tests/engine.test.ts'),
+      'import { cellSize } from "../src/engine.ts"; console.log(cellSize);',
+    );
+    writeFileSync(join(dir, 'src/engine.ts'), 'export { cellSize } from "./audio.ts";');
+    const linked = commit();
+    writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 8;');
+    const changedSource = commit();
+    assert.deepEqual(run(linked, changedSource), game, 'a transitive source change selects simulation');
+    assert.deepEqual(
+      run(linked, changedSource, join(dir, 'missing-tmpdir')),
+      game,
+      'unavailable scratch space selects simulation',
+    );
+
+    mkdirSync(join(dir, 'public'));
+    writeFileSync(join(dir, 'public/terrain.json'), '{"cellSize":4}');
+    writeFileSync(
+      join(dir, 'src/engine.ts'),
+      'import terrain from "../public/terrain.json"; export const cellSize = terrain.cellSize;',
+    );
+    const terrain = commit();
+    writeFileSync(join(dir, 'public/terrain.json'), '{"cellSize":8}');
+    assert.deepEqual(
+      run(terrain, commit()),
+      { ...game, types: false },
+      'changing only a transitive JSON input selects simulation',
+    );
+
+    const terrainPackage = join(dir, 'public/terrain-package');
+    mkdirSync(terrainPackage);
+    writeFileSync(join(terrainPackage, 'v1.json'), '{"cellSize":4}');
+    writeFileSync(join(terrainPackage, 'v2.json'), '{"cellSize":8}');
+    const manifest = join(terrainPackage, 'package.json');
+    writeFileSync(manifest, '{"main":"./v1.json"}');
+    writeFileSync(
+      join(dir, 'src/engine.ts'),
+      'import terrain from "../public/terrain-package"; export const cellSize = terrain.cellSize;',
+    );
+    const beforeManifest = commit();
+    writeFileSync(manifest, '{"main":"./v2.json"}');
+    assert.deepEqual(run(beforeManifest, commit()), all, 'a nested manifest can redirect a simulation input');
+
+    writeFileSync(join(dir, 'src/levels.ts'), 'export const cellSize = 4;');
+    writeFileSync(join(dir, 'src/engine.ts'), 'export { cellSize } from "@terrain";');
+    writeFileSync(join(dir, 'tsconfig.json'), '{"extends":"./public/terrain-package/shared.json"}');
+    writeFileSync(join(terrainPackage, 'shared.json'), '{"extends":"./base.json"}');
+    const inheritedConfig = join(terrainPackage, 'base.json');
+    writeFileSync(inheritedConfig, '{"compilerOptions":{"paths":{"@terrain":["../../src/audio.ts"]}}}');
+    const beforeConfig = commit();
+    writeFileSync(
+      inheritedConfig,
+      '// Prefer the primary level data.\n' +
+        '{"compilerOptions":{"paths":{"@terrain":["../../src/levels.ts","../../src/audio.ts"]}}}',
+    );
+    const redirected = commit();
+    assert.deepEqual(
+      run(beforeConfig, redirected),
+      all,
+      'an inherited config alone can redirect a simulation input',
+    );
+    writeFileSync(join(dir, 'README.md'), 'document the inherited config');
+    const unrelated = commit();
+    assert.deepEqual(
+      run(redirected, unrelated),
+      none,
+      'unchanged inheritance does not broaden unrelated checks',
+    );
+    git('rm', 'src/levels.ts');
+    assert.deepEqual(
+      run(unrelated, commit()),
+      game,
+      'a deleted alias target can redirect to an unchanged input',
+    );
+
+    if (process.platform !== 'win32') {
+      writeFileSync(join(dir, 'src/levels-v1.ts'), 'export const cellSize = 4;');
+      writeFileSync(join(dir, 'src/levels-v2.ts'), 'export const cellSize = 8;');
+      const link = join(dir, 'src/levels.ts');
+      symlinkSync('levels-v1.ts', link);
+      writeFileSync(join(dir, 'src/engine.ts'), 'export { cellSize } from "./levels.ts";');
+      const beforeRetarget = commit();
+      rmSync(link);
+      symlinkSync('levels-v2.ts', link);
+      assert.deepEqual(run(beforeRetarget, commit()), game, 'retargeting a changed link selects simulation');
+
+      mkdirSync(join(dir, 'public/v1'));
+      mkdirSync(join(dir, 'public/v2'));
+      writeFileSync(join(dir, 'public/v1/terrain.json'), '{"cellSize":4}');
+      symlinkSync('../terrain.json', join(dir, 'public/v2/terrain.json'));
+      const directoryLink = join(dir, 'public/active');
+      symlinkSync('v1', directoryLink, 'dir');
+      writeFileSync(
+        join(dir, 'src/engine.ts'),
+        'import terrain from "../public/active/terrain.json"; export const cellSize = terrain.cellSize;',
+      );
+      const beforeDirectoryRetarget = commit();
+      rmSync(directoryLink);
+      symlinkSync('v2', directoryLink, 'dir');
+      assert.deepEqual(
+        run(beforeDirectoryRetarget, commit()),
+        { ...game, types: false },
+        'retargeting a directory link selects simulation even if a nested link resolves outside the directory',
+      );
+
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        '{"compilerOptions":{"paths":{"@terrain":["./public/active/terrain.json","./public/v1/terrain.json"]}}}',
+      );
+      writeFileSync(
+        join(dir, 'src/engine.ts'),
+        'import terrain from "@terrain"; export const cellSize = terrain.cellSize;',
+      );
+      symlinkSync('terrain.json', join(dir, 'public/terrain-file'));
+      const beforeTypeChange = commit();
+      rmSync(directoryLink);
+      symlinkSync('terrain-file', directoryLink);
+      assert.deepEqual(
+        run(beforeTypeChange, commit()),
+        { ...game, types: false },
+        'retargeting a directory link to a file through another link can redirect an import to a fallback',
+      );
+      rmSync(directoryLink);
+      writeFileSync(directoryLink, 'regular file');
+      assert.deepEqual(
+        run(beforeTypeChange, commit()),
+        { ...game, types: false },
+        'replacing a directory link with a file can redirect an import to an unchanged fallback',
+      );
+    }
+
+    writeFileSync(
+      join(dir, 'src/engine.ts'),
+      'export const loadTerrain = (path: string) => import /* runtime-loaded fixture */ (path);',
+    );
+    writeFileSync(
+      join(dir, 'tests/engine.test.ts'),
+      'import { loadTerrain } from "../src/engine.ts"; console.log((await loadTerrain("../public/terrain.json")).default.cellSize);',
+    );
+    const computedImport = commit();
+    writeFileSync(join(dir, 'public/terrain.json'), '{"cellSize":16}');
+    assert.deepEqual(
+      run(computedImport, commit()),
+      { ...game, types: false },
+      'an edit to a runtime-loaded asset selects simulation when Bun cannot resolve its computed import',
+    );
+
+    writeFileSync(join(dir, 'tsconfig.json'), '{"extends":["./public/terrain-package/shared.json"]}');
+    const unsupportedInheritance = commit();
+    writeFileSync(join(dir, 'README.md'), 'documentation');
+    assert.deepEqual(
+      run(unsupportedInheritance, commit()),
+      all,
+      'unsupported resolver inheritance selects all checks for an otherwise unrelated edit',
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -226,12 +449,16 @@ void test(
       git('init', '-q', '-b', 'main');
       git('config', 'user.name', 'CI fixture');
       git('config', 'user.email', 'ci@example.invalid');
-      git('commit', '-qm', 'root', '--allow-empty');
+      mkdirSync(join(dir, 'tests'));
+      writeFileSync(join(dir, 'tests/engine.test.ts'), 'console.log("simulation");');
+      git('add', 'tests/engine.test.ts');
+      git('commit', '-qm', 'root');
       writeFileSync(join(dir, 'README.md'), 'docs');
       git('add', 'README.md');
       git('commit', '-qm', 'docs');
-      writeFileSync(join(dir, 'fixture.ts'), 'export {};');
-      git('add', 'fixture.ts');
+      mkdirSync(join(dir, 'scripts'));
+      writeFileSync(join(dir, 'scripts/ci.ts'), 'export {};');
+      git('add', 'scripts/ci.ts');
       git('commit', '-qm', 'types');
       writeFileSync(
         join(dir, 'bun'),
@@ -426,8 +653,13 @@ void test('distribution gate compares the generated file with the committed stan
         },
       }),
     );
-    for (const file of ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts']) {
-      mkdirSync(join(dir, file.split('/')[0]));
+    mkdirSync(join(dir, 'tests'));
+    mkdirSync(join(dir, 'scripts'));
+    for (const file of [
+      'tests/ci.test.ts',
+      'tests/engine.test.ts',
+      'scripts/pullfrog-command-check.test.ts',
+    ]) {
       writeFileSync(join(dir, file), 'import { test } from "node:test"; test("fixture", () => {});');
     }
     execFileSync(process.execPath, ['fmt'], { cwd: dir });

@@ -117,24 +117,23 @@ GitHub Actions runs on pull requests (including forks), merge groups, and pushes
 
 Format and owner-command authorization run in both full and selected modes. In the table, Types includes TypeScript, Landmines test lint, and native type-aware Bun lint.
 
-| Changed surface                                                                    | Checks                                            |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Documentation or screenshots                                                       | Routing                                           |
-| Engine, levels, or shared game types                                               | Types, simulation, browser controls, distribution |
-| UI, renderer, audio, or Vite config                                                | Types, browser controls, distribution             |
-| CSS, entry HTML, favicon, or public assets                                         | Browser controls, distribution                    |
-| Simulation test                                                                    | Types and simulation                              |
-| Browser test                                                                       | Types and browser controls                        |
-| Standalone script, distribution test/config                                        | Types and distribution                            |
-| Project `LICENSE` or generated `play.html`                                         | Distribution                                      |
-| Shared Playwright config                                                           | Types, browser controls, distribution             |
-| Uploader code/tests                                                                | Types and uploader regression tests               |
-| Deployment workflow                                                                | Uploader regression tests                         |
-| Routing code/tests                                                                 | Routing and types                                 |
-| Oxlint configuration or otherwise unrouted JS/TS files                             | Types                                             |
-| Package manifests, Bun install/configuration, TypeScript config, or check workflow | All checks                                        |
+| Changed surface                                            | Checks                                            |
+| ---------------------------------------------------------- | ------------------------------------------------- |
+| Documentation or screenshots                               | Routing                                           |
+| TypeScript simulation dependencies and shared game types   | Types, simulation, browser controls, distribution |
+| UI, renderer, audio, or Vite config                        | Types, browser controls, distribution             |
+| CSS, entry HTML, favicon, Git attributes, or public assets | Browser controls, distribution                    |
+| Simulation test                                            | Types and simulation                              |
+| Browser test                                               | Types and browser controls                        |
+| Standalone script, distribution test/config                | Types and distribution                            |
+| Project `LICENSE` or generated `play.html`                 | Distribution                                      |
+| Shared Playwright config                                   | Types, browser controls, distribution             |
+| Uploader code/tests                                        | Types and uploader regression tests               |
+| Deployment workflow                                        | Uploader regression tests                         |
+| Routing code/tests                                         | Routing and types                                 |
+| Shared tooling, lint configuration, or unclassified paths  | All checks                                        |
 
-Mixed changes run the union of their checks. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job shares one dependency install when a selected check needs packages. Browser and distribution checks share one pinned Playwright Chromium headless shell installation, and browser failure artifacts are retained for seven days. The job runs independent checks in parallel. For distribution it rebuilds and checks that committed `play.html` is current. Run `bun run build` and commit the result whenever build inputs change.
+Mixed changes run the union of their checks. Bun's module graph adds simulation when a changed path is a simulation dependency. Changed symlinks, deletions, and file type changes also run simulation because the head graph can omit the changed path after an import is redirected. When the graph is unavailable or a computed reference can hide a dependency, the simulation suite runs. All checks run for package manifests and JS or TS resolver configs, including nested and inherited configs. An unresolved config inheritance chain also runs all checks. The same full validation applies to lockfiles, Bun, lint and check workflow configuration, `AGENTS.md`, and any path without a known owner. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job shares one dependency install when a selected check needs packages. Browser and distribution checks share one pinned Playwright Chromium headless shell installation, and browser failure artifacts are retained for seven days. The job runs independent checks in parallel. For distribution it rebuilds and checks that committed `play.html` is current. Run `bun run build` and commit the result whenever build inputs change.
 
 Require the stable **Game checks** status for `main`. In a public organization repository, add the merge queue to the same active ruleset with no bypass actors. The queue validates the combined commit against the latest base before it can merge. An unavailable rules lookup results in full PR validation. GitHub-managed CodeQL and third-party integrations have their own scheduling.
 
