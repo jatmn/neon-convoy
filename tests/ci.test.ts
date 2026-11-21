@@ -509,6 +509,41 @@ void test(
 );
 
 void test(
+  'elapsed check budgets apply only when the workflow supplies its clock',
+  { skip: process.platform === 'win32' },
+  () => {
+    const dir = mkdtempSync(join(tmpdir(), 'neon-budget-'));
+    const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
+    try {
+      writeFileSync(join(dir, 'bun'), '#!/bin/sh\nif [ "$1:$2" = "fmt:--check" ]; then sleep 1.1; fi\n', {
+        mode: 0o755,
+      });
+      const run = (started: string) =>
+        spawnSync(process.execPath, [script], {
+          cwd: dir,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env.PATH}`,
+            CI: '1',
+            GAME_CHECK_STARTED_MS: started,
+          },
+        });
+      const local = run('');
+      assert.equal(local.status, 0, local.stderr);
+      assert.match(local.stdout, /^Format: passed in \d+ ms$/m);
+      const hosted = run(String(Date.now()));
+      assert.equal(hosted.status, 1, hosted.stderr);
+      assert.match(hosted.stderr, /^Format: failed \(budget 1000 ms\) in \d+ ms$/m);
+      assert.match(hosted.stderr, /^Failed game checks: Format$/m);
+      assert.match(hosted.stdout, /^Setup budget: passed/m);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+void test(
   'PR selection requires an active merge queue; merge groups and pushes always run every check',
   { skip: process.platform === 'win32' },
   () => {
@@ -533,6 +568,7 @@ void test(
           .join('\n'),
       };
     };
+    const startClock = step('Start job timing lookup');
     const lookup = step('Detect the main merge queue');
     const verify = step('Run game checks');
     assert.match(lookup.configuration, /GH_TOKEN:/);
@@ -542,6 +578,20 @@ void test(
       writeFileSync(
         join(dir, 'gh'),
         `#!/bin/sh
+if [ "$1:$2" = "api:repos/fixture/game/actions/runs/23/attempts/1/jobs" ]; then
+  if [ "$CLOCK_API" = error ]; then
+    echo "clock API failed" >&2
+    exit 1
+  fi
+  attempts=0
+  while [ ! -f "$RUNNER_TEMP/release-clock" ] && [ "$attempts" -lt 100 ]; do
+    command -p sleep 0.01
+    attempts=$((attempts + 1))
+  done
+  [ -f "$RUNNER_TEMP/release-clock" ] || exit 2
+  echo "2026-11-21T17:00:00Z"
+  exit 0
+fi
 [ "$#" = 5 ] && [ "$1" = api ] && [ "$2" = repos/fixture/game/rules/branches/main ] &&
   [ "$3" = --paginate ] && [ "$4" = --jq ] && [ "$5" = '.[] | select(.type == "merge_queue") | .type' ] || exit 2
 [ "$API_RULES" != error ] || exit 1
@@ -551,34 +601,48 @@ void test(
       );
       writeFileSync(
         join(dir, 'bun'),
-        '#!/bin/sh\n[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2\nprintf "%s\\n" "$2"\n',
+        `#!/bin/sh
+[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2
+[ "$GAME_CHECK_STARTED_MS:$GAME_CHECK_DEADLINE_MS" = "99000:132000" ] || exit 2
+printf "%s\\n" "$2"
+`,
         { mode: 0o755 },
       );
-      writeFileSync(join(dir, 'date'), '#!/bin/sh\nprintf "100000\\n"\n', { mode: 0o755 });
+      writeFileSync(
+        join(dir, 'date'),
+        '#!/bin/sh\nif [ "$1" = "-u" ]; then echo 99000; else echo "${MOCK_NOW:-100000}"; fi\n',
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(dir, 'sleep'),
+        '#!/bin/sh\n[ "$1" = "0.1" ] || exit 2\ntouch "$RUNNER_TEMP/release-clock"\ncommand -p sleep 0.02\n',
+        { mode: 0o755 },
+      );
       writeFileSync(
         join(dir, 'timeout'),
-        '#!/bin/sh\n[ "$1 $2" = "--kill-after=1s 32.000s" ] || exit 2\nshift 2\nexec "$@"\n',
+        '#!/bin/sh\ncase "$1 $2 $3" in "--kill-after=1s 32.000s bun"|"--kill-after=1s 14s gh") ;; *) exit 2 ;; esac\nshift 2\nexec "$@"\n',
         { mode: 0o755 },
       );
       const output = join(dir, 'outputs');
-      const run = (command: string, env: Record<string, string>) => {
+      const run = (command: string, env: Record<string, string>, expectedStatus = 0) => {
         writeFileSync(output, '');
         const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', command], {
           cwd: dir,
           encoding: 'utf8',
+          timeout: 5000,
           env: { PATH: `${dir}:${process.env.PATH}`, GITHUB_OUTPUT: output, ...env },
         });
-        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.status, expectedStatus, result.stderr);
         return { output: readFileSync(output, 'utf8').trim(), stdout: result.stdout.trim() };
       };
       writeFileSync(join(dir, 'game-check-start'), '99000\n');
-      const mode = (queue: string) =>
-        run(verify.command, {
-          QUEUE_ACTIVE: queue.replace(/^active=/, ''),
-          BASE_SHA: 'base',
-          HEAD_SHA: 'head',
-          RUNNER_TEMP: dir,
-        }).stdout;
+      const verifyEnv = (queue: string) => ({
+        QUEUE_ACTIVE: queue.replace(/^active=/, ''),
+        BASE_SHA: 'base',
+        HEAD_SHA: 'head',
+        RUNNER_TEMP: dir,
+      });
+      const mode = (queue: string) => run(verify.command, verifyEnv(queue)).stdout;
       for (const [rules, expected] of [
         ['[{"type":"required_status_checks"},{"type":"merge_queue"}]', 'selected'],
         ['[{"type":"required_status_checks"}]', 'full'],
@@ -592,6 +656,26 @@ void test(
         assert.equal(mode(queue.output), expected, rules);
       }
       assert.equal(mode(''), 'full', 'events that skip lookup run every check');
+
+      const clockEnv = {
+        RUNNER_TEMP: dir,
+        GITHUB_REPOSITORY: 'fixture/game',
+        GITHUB_RUN_ID: '23',
+        GITHUB_RUN_ATTEMPT: '1',
+      };
+      rmSync(join(dir, 'game-check-start'));
+      run(startClock.command, clockEnv);
+      assert.equal(mode('active=true'), 'selected', 'a timestamp arriving during the wait is accepted');
+
+      rmSync(join(dir, 'game-check-start'));
+      run(startClock.command, { ...clockEnv, CLOCK_API: 'error' });
+      const failed = run(verify.command, verifyEnv(''), 1);
+      assert.match(failed.stdout, /clock API failed/);
+      assert.match(failed.stdout, /GitHub job start time is unavailable/);
+
+      rmSync(join(dir, 'game-check-start.failed'));
+      const expired = run(verify.command, { ...verifyEnv(''), MOCK_NOW: '115000' }, 1);
+      assert.match(expired.stdout, /GitHub job start time is unavailable/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

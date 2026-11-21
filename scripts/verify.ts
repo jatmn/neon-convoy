@@ -10,6 +10,7 @@ const [mode = 'full', base, head, ...options] = process.argv.slice(2);
 const checks = validationChecks(mode, base, head);
 const results = new Map<string, Promise<CheckResult>>();
 const exec = promisify(execFile);
+const jobStartedAt = process.env.GAME_CHECK_STARTED_MS;
 
 const budgets = new Map([
   ['Native lint', 1_000],
@@ -30,7 +31,7 @@ function check(name: string, start: () => Promise<void>, ...prerequisites: Promi
       await start();
       const elapsed = performance.now() - started;
       const budget = budgets.get(name) ?? Infinity;
-      if (elapsed >= budget) {
+      if (jobStartedAt && elapsed >= budget) {
         console.error(`${name}: failed (budget ${budget} ms) in ${elapsed.toFixed(0)} ms`);
         return 'failed';
       }
@@ -106,8 +107,8 @@ const chromium =
       )
     : dependencies;
 
-if (process.env.GAME_CHECK_STARTED_MS) {
-  const started = Number(process.env.GAME_CHECK_STARTED_MS);
+if (jobStartedAt) {
+  const started = Number(jobStartedAt);
   results.set(
     'Setup budget',
     chromium.then(() => {

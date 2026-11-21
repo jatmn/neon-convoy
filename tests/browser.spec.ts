@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { test, expect } from '@playwright/test';
+import { test, expect } from './browser-fixtures.ts';
 
 async function clickWorld(page: Page, x: number, y: number) {
   const canvas = page.locator('#game');

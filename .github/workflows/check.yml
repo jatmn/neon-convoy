@@ -25,13 +25,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           clock="$RUNNER_TEMP/game-check-start"
+          echo "$(( $(date +%s%3N) + 15000 ))" > "$clock.wait-until"
           (
             set -euo pipefail
-            started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
-              --jq '.jobs[] | select(.name == "Game checks") | .started_at')
-            test -n "$started"
-            date -u -d "$started" +%s%3N > "$clock.partial"
-            mv "$clock.partial" "$clock"
+            if started=$(timeout --kill-after=1s 14s gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+              --jq '.jobs[] | select(.name == "Game checks") | .started_at') &&
+              [[ -n "$started" ]] && date -u -d "$started" +%s%3N > "$clock.partial"; then
+              mv "$clock.partial" "$clock"
+            else
+              echo "Could not read the job start time from GitHub."
+              touch "$clock.failed"
+            fi
           ) </dev/null >"$clock.log" 2>&1 &
       - name: Detect the main merge queue
         id: queue
@@ -66,14 +70,20 @@ jobs:
             mode=selected
           fi
           clock="$RUNNER_TEMP/game-check-start"
-          if ! read -r GAME_CHECK_STARTED_MS < "$clock"; then
-            cat "$clock.log"
+          if [[ ! -f "$clock" ]] && read -r wait_until < "$clock.wait-until"; then
+            while [[ ! -f "$clock" && ! -f "$clock.failed" ]] && (( $(date +%s%3N) < wait_until )); do
+              sleep 0.1
+            done
+          fi
+          if [[ ! -f "$clock" ]] || ! read -r GAME_CHECK_STARTED_MS < "$clock"; then
+            if [[ -s "$clock.log" ]]; then cat "$clock.log"; fi
             echo "::error::GitHub job start time is unavailable."
             exit 1
           fi
           export GAME_CHECK_STARTED_MS
           # Reserve two seconds of the 35 s job budget for runner finalization.
-          remaining=$(( 33000 - ($(date +%s%3N) - GAME_CHECK_STARTED_MS) ))
+          export GAME_CHECK_DEADLINE_MS=$(( GAME_CHECK_STARTED_MS + 33000 ))
+          remaining=$(( GAME_CHECK_DEADLINE_MS - $(date +%s%3N) ))
           if (( remaining <= 0 )); then
             echo "::error::Setup exhausted the required job budget."
             exit 1
