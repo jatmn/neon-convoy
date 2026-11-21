@@ -4,8 +4,9 @@ export { expect } from '@playwright/test';
 
 const jobDeadline = Number(process.env.GAME_CHECK_DEADLINE_MS);
 const screenshotBudget = 500;
-// Leave time for Playwright's context diagnostics, trace and result reporting.
-const finishScreenshotBy = jobDeadline - 8_000;
+// Leave two seconds for context diagnostics and traces before Playwright's
+// suite deadline, which is itself two seconds before the job deadline.
+const finishScreenshotBy = jobDeadline - 4_000;
 
 export const test = base.extend<{ jobDeadline: void }>({
   jobDeadline: [
