@@ -10,8 +10,10 @@ import {
 } from 'node:fs';
 import { isBuiltin } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, relative, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+declare const Bun: { JSONC: { parse(text: string): unknown } };
 
 const fullChecks = { types: true, simulation: true, browser: true, distribution: true, deployment: true };
 
@@ -29,6 +31,39 @@ const ownedInputs = [
   /^scripts\/(?:ci|deploy|standalone|pullfrog-command-check(?:\.test)?)\.ts$/,
   /^\.github\/workflows\/deploy\.yml$/,
 ];
+
+function inheritedResolverChanged(paths: string[]) {
+  if (paths.length === 0) return false;
+  try {
+    const root = realpathSync('.');
+    const changed = new Set(paths.map((path) => resolve(root, path)));
+    const configs = execFileSync(
+      'git',
+      ['ls-files', '-z', '--', ':(glob)**/tsconfig.json', ':(glob)**/jsconfig.json'],
+      { encoding: 'utf8' },
+    )
+      .split('\0')
+      .filter(Boolean)
+      .map((path) => resolve(root, path));
+    const seen = new Set<string>();
+    for (let config = configs.pop(); config; config = configs.pop()) {
+      if (changed.has(config)) return true;
+      if (seen.has(config)) continue;
+      seen.add(config);
+      // A symlink in the config path can redirect resolution without changing the config itself.
+      if (!config.startsWith(join(root, sep)) || realpathSync(config) !== config) return true;
+      const { extends: parent } = Bun.JSONC.parse(readFileSync(config, 'utf8')) as { extends?: unknown };
+      if (parent === undefined) continue;
+      // Follow local inheritance. Other forms may involve resolution outside this checkout.
+      if (typeof parent !== 'string' || !/^\.\.?[\\/]/.test(parent)) return true;
+      configs.push(resolve(dirname(config), parent));
+    }
+    return false;
+  } catch {
+    // An incomplete config chain cannot prove the change is unrelated to resolution.
+    return true;
+  }
+}
 
 function simulationImports(paths: string[]) {
   if (paths.length === 0) return false;
@@ -68,22 +103,27 @@ function simulationImports(paths: string[]) {
   }
 }
 
-export function checksFor(paths: string[]) {
+export function checksFor(paths: string[], hasDeletions = false) {
   if (
     paths.some(
       (path) =>
         path === 'AGENTS.md' ||
         resolverConfig.test(path) ||
         (!documentedInputs.test(path) && !ownedInputs.some((pattern) => pattern.test(path))),
-    )
+    ) ||
+    inheritedResolverChanged(paths)
   )
     return fullChecks;
   const app = paths.some((path) => /^(src|public)\//.test(path) || appEntries.test(path));
   const playwrightConfig = paths.some((path) => sharedPlaywrightConfig.test(path));
   return {
     types: paths.some((path) => /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)),
+    // A deleted input can redirect an import to an unchanged fallback in the head graph.
     simulation:
-      paths.includes('src/types.ts') || paths.includes('tests/engine.test.ts') || simulationImports(paths),
+      hasDeletions ||
+      paths.includes('src/types.ts') ||
+      paths.includes('tests/engine.test.ts') ||
+      simulationImports(paths),
     browser: app || playwrightConfig || paths.some((path) => path === 'tests/browser.spec.ts'),
     distribution:
       app ||
@@ -101,16 +141,26 @@ export function checksFor(paths: string[]) {
 
 // No API token or dependencies: works with fork PRs, deletions and large diffs.
 // Disabling rename detection includes both old and new paths when a file moves.
-function changedPaths(base: string, head: string): string[] {
+function changesBetween(base: string, head: string) {
   const start = execFileSync('git', ['merge-base', base, head], { encoding: 'utf8' }).trim();
-  return execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', start, head], { encoding: 'utf8' })
-    .split('\0')
-    .filter(Boolean);
+  const entries = execFileSync('git', ['diff', '--no-renames', '--name-status', '-z', start, head], {
+    encoding: 'utf8',
+  }).split('\0');
+  const paths: string[] = [];
+  let hasDeletions = false;
+  for (let index = 0; index + 1 < entries.length; index += 2) {
+    paths.push(entries[index + 1]);
+    if (entries[index] === 'D') hasDeletions = true;
+  }
+  return { paths, hasDeletions };
 }
 
 export function validationChecks(mode: string, base: string, head: string) {
   if (mode === 'full') return fullChecks;
-  if (mode === 'selected' && base && head) return checksFor(changedPaths(base, head));
+  if (mode === 'selected' && base && head) {
+    const { paths, hasDeletions } = changesBetween(base, head);
+    return checksFor(paths, hasDeletions);
+  }
   throw new Error('Expected full validation or selected validation with base and head SHAs');
 }
 

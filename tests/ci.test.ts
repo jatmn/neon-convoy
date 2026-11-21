@@ -46,9 +46,10 @@ void test('shared tooling and unclassified paths validate every surface', () => 
   }
 });
 
-void test('engine and level changes exercise their browser and build consumers', () => {
-  for (const path of ['src/engine.ts', 'src/levels.ts']) assertOwnedChecks([path], ownedGame);
-  assert.deepEqual(checksFor(['src/types.ts']), game);
+void test('core simulation sources select simulation, browser and distribution checks', () => {
+  for (const path of ['src/engine.ts', 'src/levels.ts', 'src/types.ts']) {
+    assert.deepEqual(checksFor([path]), game, path);
+  }
   assert.deepEqual(checksFor(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
 });
 
@@ -157,7 +158,11 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     git('switch', '-q', 'docs');
     git('mv', 'play.html', 'archived.md');
     const renamed = commit();
-    assert.deepEqual(run(docs, renamed), { ...none, distribution: true }, 'old path of rename is included');
+    assert.deepEqual(
+      run(docs, renamed),
+      { ...none, simulation: true, distribution: true },
+      'the removed path of a rename selects its checks and may affect simulation resolution',
+    );
     git('switch', '-q', 'main');
     git('rm', 'package.json');
     const deleted = commit();
@@ -218,6 +223,38 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     const beforeManifest = commit();
     writeFileSync(manifest, '{"main":"./v2.json"}');
     assert.deepEqual(run(beforeManifest, commit()), all, 'a nested manifest can redirect a simulation input');
+
+    writeFileSync(join(dir, 'src/levels.ts'), 'export const cellSize = 4;');
+    writeFileSync(join(dir, 'src/engine.ts'), 'export { cellSize } from "@terrain";');
+    writeFileSync(join(dir, 'tsconfig.json'), '{"extends":"./public/terrain-package/shared.json"}');
+    writeFileSync(join(terrainPackage, 'shared.json'), '{"extends":"./base.json"}');
+    const inheritedConfig = join(terrainPackage, 'base.json');
+    writeFileSync(inheritedConfig, '{"compilerOptions":{"paths":{"@terrain":["../../src/audio.ts"]}}}');
+    const beforeConfig = commit();
+    writeFileSync(
+      inheritedConfig,
+      '// Prefer the primary level data.\n' +
+        '{"compilerOptions":{"paths":{"@terrain":["../../src/levels.ts","../../src/audio.ts"]}}}',
+    );
+    const redirected = commit();
+    assert.deepEqual(
+      run(beforeConfig, redirected),
+      all,
+      'an inherited config alone can redirect a simulation input',
+    );
+    writeFileSync(join(dir, 'README.md'), 'document the inherited config');
+    const unrelated = commit();
+    assert.deepEqual(
+      run(redirected, unrelated),
+      none,
+      'unchanged inheritance does not broaden unrelated checks',
+    );
+    git('rm', 'src/levels.ts');
+    assert.deepEqual(
+      run(unrelated, commit()),
+      game,
+      'a deleted alias target can redirect to an unchanged input',
+    );
 
     if (process.platform !== 'win32') {
       writeFileSync(join(dir, 'src/levels-v1.ts'), 'export const cellSize = 4;');
