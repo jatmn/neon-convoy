@@ -1,3 +1,2 @@
-# Vite preserves checkout line endings from these inputs in the standalone build.
-/index.html text eol=lf
-/favicon.svg text eol=lf
+# Use LF for formatter inputs and reproducible standalone builds.
+* text=auto eol=lf

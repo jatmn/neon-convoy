@@ -99,7 +99,7 @@ bun --bun playwright install --only-shell chromium
 bun run verify
 ```
 
-Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs native type-aware Bun lint, `bun run lint` (Landmines test lint), `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution`.
+Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs `bun fmt --check`, native type-aware Bun lint, `bun run lint` (Landmines test lint), `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution`.
 
 Run `bun fmt` to format tracked source and documentation. Generated `play.html` is checked against a fresh build.
 
@@ -113,11 +113,11 @@ If Chromium is already installed outside Playwright's expected location, set `PL
 
 GitHub Actions runs on pull requests (including forks), merge groups, and pushes to `main`. It uses read-only permissions and cancels superseded runs. Merge groups and main pushes run every check. Pull requests also run every check unless an active merge queue ruleset applies to `main`. When the queue is active, PR feedback uses the changed inputs below.
 
-In the table, Types includes TypeScript, Landmines test lint, and native type-aware Bun lint.
+Format and owner-command authorization run in both full and selected modes. In the table, Types includes TypeScript, Landmines test lint, and native type-aware Bun lint.
 
 | Changed surface                                                                    | Checks                                            |
 | ---------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Documentation or screenshots                                                       | Routing and owner-command authorization           |
+| Documentation or screenshots                                                       | Routing                                           |
 | Engine, levels, or shared game types                                               | Types, simulation, browser controls, distribution |
 | UI, renderer, audio, or Vite config                                                | Types, browser controls, distribution             |
 | CSS, entry HTML, favicon, or public assets                                         | Browser controls, distribution                    |
