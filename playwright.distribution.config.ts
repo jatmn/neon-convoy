@@ -1,8 +1,9 @@
 import { defineConfig } from '@playwright/test';
-import config, { webServerTimeout } from './playwright.config.ts';
+import config, { timingReporter, webServerTimeout } from './playwright.config.ts';
 
 export default defineConfig({
   ...config,
+  reporter: timingReporter('distribution'),
   testMatch: 'distribution.spec.ts',
   webServer: {
     command: 'bun run preview --host 127.0.0.1 --port 4174 --strictPort',

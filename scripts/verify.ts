@@ -1,8 +1,11 @@
 import { execFile, spawn } from 'node:child_process';
 import type { StdioOptions } from 'node:child_process';
+import { mkdirSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { validationChecks } from './ci.ts';
+import { recordTestInventory } from './test-inventory.ts';
 
 type CheckResult = 'passed' | 'failed' | 'blocked';
 
@@ -23,7 +26,7 @@ const budgets = new Map([
   ['Distribution', 30_000],
 ]);
 
-function check(name: string, start: () => Promise<void>, ...prerequisites: Promise<CheckResult>[]) {
+function check(name: string, start: () => void | Promise<void>, ...prerequisites: Promise<CheckResult>[]) {
   const result = Promise.all(prerequisites).then(async (ready): Promise<CheckResult> => {
     if (ready.some((status) => status !== 'passed')) return 'blocked';
 
@@ -61,33 +64,53 @@ function check(name: string, start: () => Promise<void>, ...prerequisites: Promi
   return result;
 }
 
-function run(name: string, command: string, args: string[], ...prerequisites: Promise<CheckResult>[]) {
-  return check(
-    name,
-    () =>
-      new Promise<void>((resolve, reject) => {
-        const stdio: StdioOptions = ['ignore', 'inherit', 'inherit'];
-        const child = spawn(command, args, { stdio });
-        child.once('error', reject);
-        child.once('close', (code, signal) => {
-          if (code === 0) resolve();
-          else reject(new Error(signal ?? `exit code ${code}`));
-        });
-      }),
-    ...prerequisites,
-  );
+function spawnCommand(command: string, args: string[], env?: NodeJS.ProcessEnv) {
+  return new Promise<void>((resolve, reject) => {
+    const stdio: StdioOptions = ['ignore', 'inherit', 'inherit'];
+    const child = spawn(command, args, { stdio, env });
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      if (code === 0) resolve();
+      else reject(new Error(signal ?? `exit code ${code}`));
+    });
+  });
 }
 
-const unitFiles = ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts'];
-if (checks.simulation) unitFiles.push('tests/engine.test.ts');
-if (checks.deployment) unitFiles.push('tests/deploy.test.ts');
-void run('Unit tests', 'bun', ['test', '--isolate', '--randomize', ...unitFiles]);
-void run('Format', 'bun', ['fmt', '--check']);
+function run(name: string, command: string, args: string[], ...prerequisites: Promise<CheckResult>[]) {
+  return check(name, () => spawnCommand(command, args), ...prerequisites);
+}
+
+const full = Object.values(checks).every(Boolean);
+const timingDirectory = 'test-results/timings';
+const unitArgs = ['test', '--isolate', '--randomize'];
+if (full) {
+  rmSync(timingDirectory, { recursive: true, force: true });
+  mkdirSync(timingDirectory, { recursive: true });
+  process.env.NEON_TEST_TIMINGS_DIRECTORY = timingDirectory;
+  unitArgs.push(
+    `--timings=${join(timingDirectory, 'unit.json')}`,
+    '--update-timings',
+    '--reporter=junit',
+    `--reporter-outfile=${join(timingDirectory, 'unit-junit.xml')}`,
+  );
+} else {
+  unitArgs.push('tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts');
+  if (checks.simulation) unitArgs.push('tests/engine.test.ts');
+  if (checks.deployment) unitArgs.push('tests/deploy.test.ts');
+}
 const needsChromium = checks.browser || checks.distribution;
 const dependencies =
   options.includes('--install-dependencies') && (checks.types || needsChromium)
     ? run('Dependency install', 'bun', ['install', '--frozen-lockfile'])
     : Promise.resolve<CheckResult>('passed');
+
+// Full discovery includes the Playwright reporter regression and rejects focused Bun tests.
+void check(
+  'Unit tests',
+  () => spawnCommand('bun', unitArgs, full ? { ...process.env, CI: '1' } : undefined),
+  ...(full ? [dependencies] : []),
+);
+void run('Format', 'bun', ['fmt', '--check']);
 
 if (checks.types) {
   void run('Test lint', 'bun', ['run', 'lint'], dependencies);
@@ -146,8 +169,14 @@ if (jobStartedAt) {
   results.set('Setup budget', browserSetup);
 }
 
+const playwrightArgs = full ? ['--forbid-only'] : [];
 if (checks.browser) {
-  void run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], browserSetup);
+  void run(
+    'Browser controls',
+    'bun',
+    ['run', 'test:browser', '--output=test-results/browser', ...playwrightArgs],
+    browserSetup,
+  );
 }
 
 if (checks.distribution) {
@@ -169,7 +198,7 @@ if (checks.distribution) {
   void run(
     'Distribution',
     'bun',
-    ['run', 'test:distribution', '--output=test-results/distribution'],
+    ['run', 'test:distribution', '--output=test-results/distribution', ...playwrightArgs],
     build,
     browserSetup,
   );
@@ -178,6 +207,11 @@ if (checks.distribution) {
 const completed = await Promise.all(
   Array.from(results, async ([name, status]) => ({ name, status: await status })),
 );
+if (full && completed.every(({ status }) => status === 'passed')) {
+  const name = 'Test inventory';
+  const status = await check(name, () => recordTestInventory(timingDirectory));
+  completed.push({ name, status });
+}
 const failed = completed.filter((result) => result.status === 'failed').map((result) => result.name);
 const blocked = completed.filter((result) => result.status === 'blocked').map((result) => result.name);
 if (failed.length) {

@@ -136,3 +136,10 @@ jobs:
           name: browser-test-results
           path: test-results/
           retention-days: 7
+      - name: Record full-suite file timings
+        if: success() && hashFiles('test-results/timings/files.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-file-timings
+          path: test-results/timings/
+          retention-days: 14

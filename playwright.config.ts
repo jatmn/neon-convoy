@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+import type { PlaywrightTestConfig } from '@playwright/test';
 import { defineConfig, devices } from '@playwright/test';
 
 const jobDeadline = Number(process.env.GAME_CHECK_DEADLINE_MS);
@@ -12,8 +14,14 @@ export const webServerTimeout = startupDeadline
 // Playwright's automatic failure snapshot can wait five seconds before it reports the test.
 if (suiteDeadline) process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
 
+export function timingReporter(suite: string): PlaywrightTestConfig['reporter'] {
+  const directory = process.env.NEON_TEST_TIMINGS_DIRECTORY;
+  return directory ? [['line'], ['json', { outputFile: resolve(directory, `${suite}.json`) }]] : undefined;
+}
+
 export default defineConfig({
   testDir: './tests',
+  reporter: timingReporter('browser'),
   testMatch: 'browser.spec.ts',
   timeout: 30_000,
   globalTimeout: suiteDeadline ? Math.max(1, suiteDeadline - Date.now()) : undefined,

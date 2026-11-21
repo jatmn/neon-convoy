@@ -504,11 +504,11 @@ void test(
 
       const failed = run('1', 'full', '', '');
       assert.equal(failed.status, 1, failed.stderr);
-      assert.match(failed.stdout, /^Unit tests: passed in \d+ ms$/m);
+      assert.doesNotMatch(failed.stdout, /^Unit tests: started$/m);
       assert.match(failed.stderr, /^Failed game checks: Dependency install$/m);
       assert.match(
         failed.stderr,
-        /^Blocked game checks: Test lint, Native lint, TypeScript, Chromium setup, Browser controls, Production build, Standalone parity, Distribution$/m,
+        /^Blocked game checks: Unit tests, Test lint, Native lint, TypeScript, Chromium setup, Browser controls, Production build, Standalone parity, Distribution$/m,
       );
       assert.equal(readFileSync(join(dir, 'installs'), 'utf8'), 'install\ninstall\n');
     } finally {
@@ -526,6 +526,7 @@ void test(
     const budgetLog = join(dir, 'budget.log');
     const outputLog = join(dir, 'output.log');
     try {
+      execFileSync('git', ['init', '-q'], { cwd: dir });
       writeFileSync(
         join(dir, 'bun'),
         `#!/bin/sh
@@ -540,6 +541,13 @@ wait_for_report() {
   return 9
 }
 case "$1:$2:$TIMING_FIXTURE" in
+  test:--isolate:*)
+    echo '{"files":{}}' > "$NEON_TEST_TIMINGS_DIRECTORY/unit.json"
+    echo '<testsuites skipped="0"></testsuites>' > "$NEON_TEST_TIMINGS_DIRECTORY/unit-junit.xml"
+    ;;
+  run:test:browser:*|run:test:distribution:*)
+    echo '{"suites":[],"stats":{}}' > "$NEON_TEST_TIMINGS_DIRECTORY/\${2#test:}.json"
+    ;;
   fmt:--check:slow) sleep 1.1 ;;
   fmt:--check:stall)
     wait_for_report '^Format: failed (budget 1000 ms)' "$BUDGET_LOG"
@@ -587,6 +595,7 @@ esac
       const local = run('', 'slow');
       assert.equal(local.status, 0, local.stderr);
       assert.match(local.stdout, /^Format: passed in \d+ ms$/m);
+      assert.match(local.stdout, /^Test inventory: passed in \d+ ms$/m);
       const hosted = run(String(Date.now()), 'stall');
       assert.equal(hosted.status, 1, hosted.stderr);
       assert.match(hosted.stderr, /^Format: failed \(budget 1000 ms\) in \d+ ms$/m);
