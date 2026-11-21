@@ -19,7 +19,9 @@ requests belong in public issues.
 
 ## Dependency updates
 
-Dependabot checks npm dependencies and GitHub Actions weekly. Updates require
+Dependabot checks for new versions of Bun dependencies and GitHub Actions weekly.
+GitHub's [Dependabot ecosystem reference](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories#bun)
+lists automated security-update pull requests as unsupported for Bun. Updates require
 maintainer review and the existing validation checks. When a dependency update
 changes the generated standalone build, regenerate and commit `play.html` as
 described in [CONTRIBUTING.md](CONTRIBUTING.md).

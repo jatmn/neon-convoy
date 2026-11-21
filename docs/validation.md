@@ -1,7 +1,7 @@
 # Release validation
 
-Install Playwright's pinned Chromium and run `npm run check` to validate a release.
-The script starts with `npm run lint` for the Landmines testing rules. See the
+Install Playwright's pinned Chromium and run `bun run verify` to validate a release.
+The verifier runs `bun run lint` for the Landmines testing rules. See the
 [README validation commands](../README.md#validate) for setup and the full list.
 
 ## TypeScript migration results
@@ -16,6 +16,9 @@ TypeScript migration validated on September 29, 2026 with Node 22.23.1 and the C
 
 Browser integration covers campaign navigation, play/pause, restart, speed, tool assignment, terrain editing, hints/settings dialogs, music state, a real simulation-driven victory, score/progress persistence, and advancing to the next sector. No simulation assertions were removed during migration.
 
-CI uses Node 22.18 (the supported minimum), installs Playwright's pinned Chromium, and checks that rebuilding does not change committed `play.html`. The [README](../README.md#continuous-integration) describes file-based job selection and the aggregate check to require in branch protection.
+CI uses pinned Bun and Playwright's pinned Chromium headless shell. It passes
+`--check-committed` to the verifier to compare its rebuilt `play.html` with the
+committed file. The [README](../README.md#continuous-integration) describes
+file-based job selection and the aggregate check to require in branch protection.
 
 Firefox and Safari have not been separately tested. The mobile project emulates a Pixel 7 in Chromium; it does not exercise a physical device.

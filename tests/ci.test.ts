@@ -17,7 +17,7 @@ test('documentation and screenshots skip game checks', () => {
 });
 
 test('shared tooling and the workflow validate every surface', () => {
-  for (const path of ['package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/check.yml']) {
+  for (const path of ['package.json', 'bun.lock', 'bunfig.toml', 'scripts/install-bun.sh', 'tsconfig.json', '.github/workflows/check.yml']) {
     assert.deepEqual(checksFor([path]), all, path);
   }
 });
@@ -121,9 +121,14 @@ test('required game checks fail and report all unsuccessful commands', { skip: p
   const dir = mkdtempSync(join(tmpdir(), 'neon-verify-'));
   const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
   try {
-    writeFileSync(join(dir, 'npm'), '#!/bin/sh\ncase "$2" in typecheck|build) exit 1 ;; esac\n', { mode: 0o755 });
-    writeFileSync(join(dir, 'node'), '#!/bin/sh\nexit 2\n', { mode: 0o755 });
-    writeFileSync(join(dir, 'npx'), '#!/bin/sh\nexit 3\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'bun'), [
+      '#!/bin/sh',
+      'case "$1:$2" in',
+      '  test:*) exit 2 ;;',
+      '  check:*|run:build) exit 1 ;;',
+      '  --bun:playwright) exit 3 ;;',
+      'esac',
+    ].join('\n'), { mode: 0o755 });
     const run = (...args: string[]) => spawnSync(process.execPath, [script, ...args], {
       cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
     });
@@ -161,16 +166,15 @@ test('the CI runner installs packages once, only when a selected check needs the
     git('add', 'README.md'); git('commit', '-qm', 'docs');
     writeFileSync(join(dir, 'fixture.ts'), 'export {};');
     git('add', 'fixture.ts'); git('commit', '-qm', 'types');
-    writeFileSync(join(dir, 'node'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-    writeFileSync(join(dir, 'npm'), [
+    writeFileSync(join(dir, 'bun'), [
       '#!/bin/sh',
       'case "$*" in',
-      '  ci) echo install >> installs; exit "$INSTALL_STATUS" ;;',
-      '  "run typecheck"|"run lint") test -f installs ;;',
+      '  "test --isolate --randomize "*) exit 0 ;;',
+      '  "install --frozen-lockfile") echo install >> installs; exit "$INSTALL_STATUS" ;;',
+      '  check|"run lint") test -f installs ;;',
       '  *) exit 7 ;;',
       'esac',
     ].join('\n'), { mode: 0o755 });
-    writeFileSync(join(dir, 'npx'), '#!/bin/sh\nexit 7\n', { mode: 0o755 });
 
     const docs = run('1', 'selected', 'HEAD~2', 'HEAD~1');
     assert.equal(docs.status, 0, docs.stderr);
@@ -197,7 +201,7 @@ test('the CI runner installs packages once, only when a selected check needs the
 test('PR selection requires an active merge queue; merge groups and pushes always run every check', { skip: process.platform === 'win32' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-queue-'));
   const workflow = readFileSync(new URL('../.github/workflows/check.yml', import.meta.url), 'utf8');
-  assert.doesNotMatch(workflow, /^ +-[^\n]*run: npm ci\s*$/m);
+  assert.doesNotMatch(workflow, /^ +-[^\n]*run: bun install\b/m);
   assert.match(workflow, /^  merge_group:\n    types: \[checks_requested\]$/m);
   assert.match(workflow, /id: queue\n        if: github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == 'main'/);
   const step = (name: string) => {
@@ -211,8 +215,13 @@ test('PR selection requires an active merge queue; merge groups and pushes alway
   assert.match(verify.configuration, /QUEUE_ACTIVE: \$\{\{ steps\.queue\.outputs\.active \}\}/);
   assert.doesNotMatch(verify.configuration, /GH_TOKEN|github\.token/);
   try {
-    writeFileSync(join(dir, 'gh'), '#!/bin/sh\n[ "$1" = api ] && [ "$2" = "repos/fixture/game/rules/branches/main" ] && [ "$3" = --paginate ] || exit 2\n[ "$API_RESULT" != error ] || exit 1\nprintf "%s\\n" "$API_RESULT"\n', { mode: 0o755 });
-    writeFileSync(join(dir, 'node'), '#!/bin/sh\n[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2\nprintf "%s\\n" "$2"\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'gh'), `#!/bin/sh
+[ "$#" = 5 ] && [ "$1" = api ] && [ "$2" = repos/fixture/game/rules/branches/main ] &&
+  [ "$3" = --paginate ] && [ "$4" = --jq ] && [ "$5" = '.[] | select(.type == "merge_queue") | .type' ] || exit 2
+[ "$API_RULES" != error ] || exit 1
+"$TEST_BUN" -e 'for (const rule of JSON.parse(process.env.API_RULES)) if (rule.type === "merge_queue") console.log(rule.type)'
+`, { mode: 0o755 });
+    writeFileSync(join(dir, 'bun'), '#!/bin/sh\n[ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2\nprintf "%s\\n" "$2"\n', { mode: 0o755 });
     const output = join(dir, 'outputs');
     const run = (command: string, env: Record<string, string>) => {
       writeFileSync(output, '');
@@ -226,9 +235,13 @@ test('PR selection requires an active merge queue; merge groups and pushes alway
     const mode = (queue: string) => run(verify.command, {
       QUEUE_ACTIVE: queue.replace(/^active=/, ''), BASE_SHA: 'base', HEAD_SHA: 'head',
     }).stdout;
-    for (const rules of ['merge_queue', '', 'error']) {
-      const queue = run(lookup.command, { GH_REPO: 'fixture/game', API_RESULT: rules });
-      assert.equal(mode(queue.output), rules === 'merge_queue' ? 'selected' : 'full', rules || 'no rule');
+    for (const [rules, expected] of [
+      ['[{"type":"required_status_checks"},{"type":"merge_queue"}]', 'selected'],
+      ['[{"type":"required_status_checks"}]', 'full'],
+      ['error', 'full'],
+    ]) {
+      const queue = run(lookup.command, { GH_REPO: 'fixture/game', API_RULES: rules, TEST_BUN: process.execPath });
+      assert.equal(mode(queue.output), expected, rules);
     }
     assert.equal(mode(''), 'full', 'events that skip lookup run every check');
   } finally {
@@ -269,17 +282,21 @@ test('distribution gate compares the generated file with the committed standalon
     git('config', 'user.name', 'CI fixture');
     git('config', 'user.email', 'ci@example.invalid');
     git('config', 'core.autocrlf', 'false');
-    // Exercise the runner and Git with no Vite build or browser required for this fixture.
+    // Feed controlled build bytes through the verifier and Git.
     writeFileSync(join(dir, 'package.json'), JSON.stringify({
-      scripts: { build: 'node -e "0"', 'test:distribution': 'node -e "0" --' },
+      scripts: {
+        build: `bun -e "await Bun.write('play.html', Bun.file('generated.html'))"`,
+        'test:distribution': 'bun -e "0" --',
+      },
     }));
     for (const file of ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts']) {
       mkdirSync(join(dir, file.split('/')[0]));
-      writeFileSync(join(dir, file), 'export {};');
+      writeFileSync(join(dir, file), 'import { test } from "node:test"; test("fixture", () => {});');
     }
     git('add', '.'); git('commit', '-qm', 'fixture');
     const base = git('rev-parse', 'HEAD');
     writeFileSync(join(dir, 'play.html'), 'standalone\n');
+    writeFileSync(join(dir, 'generated.html'), 'standalone\n');
     git('add', 'play.html'); git('commit', '-qm', 'add standalone');
     const head = git('rev-parse', 'HEAD');
     const check = (...options: string[]) => spawnSync(process.execPath, [script, 'selected', base, head, ...options], { cwd: dir, encoding: 'utf8' });
@@ -291,6 +308,7 @@ test('distribution gate compares the generated file with the committed standalon
     const matching = check('--check-committed');
     assert.equal(matching.status, 0, matching.stderr);
     assert.match(matching.stdout, /Standalone parity: passed/);
+    writeFileSync(join(dir, 'generated.html'), 'standalone\r\n');
     writeFileSync(join(dir, 'play.html'), 'standalone\r\n');
     git('add', 'play.html');
     const local = check();
@@ -298,6 +316,7 @@ test('distribution gate compares the generated file with the committed standalon
     assert.match(local.stdout, /^Distribution: passed$/m);
     expectParityFailure();
     git('restore', '--source=HEAD', '--staged', '--worktree', 'play.html');
+    writeFileSync(join(dir, 'generated.html'), 'standalone\n');
     git('rm', '-q', 'play.html'); git('commit', '-qm', 'delete standalone');
     writeFileSync(join(dir, 'play.html'), 'standalone\n');
     expectParityFailure();

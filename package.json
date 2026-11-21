@@ -6,15 +6,13 @@
   "type": "module",
   "description": "A synthwave drone rescue puzzle game with destructible terrain.",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "build": "vite build && node scripts/standalone.ts",
-    "preview": "vite preview --host 0.0.0.0",
-    "test": "node --test tests/engine.test.ts tests/ci.test.ts tests/deploy.test.ts scripts/pullfrog-command-check.test.ts",
-    "test:browser": "playwright test",
-    "lint": "oxlint .",
-    "check": "node scripts/verify.ts",
-    "typecheck": "tsc --noEmit",
-    "test:distribution": "playwright test --config playwright.distribution.config.ts"
+    "dev": "bun --bun vite --host 0.0.0.0",
+    "build": "bun --bun vite build && bun scripts/standalone.ts",
+    "preview": "bun --bun vite preview --host 0.0.0.0",
+    "test:browser": "bun --bun playwright test",
+    "lint": "bun --bun oxlint .",
+    "verify": "bun scripts/verify.ts",
+    "test:distribution": "bun --bun playwright test --config playwright.distribution.config.ts"
   },
   "devDependencies": {
     "@interfere/landmines": "0.1.0",
@@ -24,7 +22,5 @@
     "typescript": "7.0.2",
     "vite": "8.3.8"
   },
-  "engines": {
-    "node": ">=22.18.0"
-  }
+  "packageManager": "bun@1.4.5-canary.20261120.1"
 }

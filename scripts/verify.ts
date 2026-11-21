@@ -32,12 +32,7 @@ function check(name: string, start: () => Promise<void>, ...prerequisites: Promi
 function run(name: string, command: string, args: string[], ...prerequisites: Promise<CheckResult>[]) {
   return check(name, () => new Promise<void>((resolve, reject) => {
     const stdio: StdioOptions = ['ignore', 'inherit', 'inherit'];
-    // Only the fixed npm/npx commands below need cmd.exe to launch their Windows shims.
-    const child = process.platform === 'win32' && (command === 'npm' || command === 'npx')
-      ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${[command, ...args].join(' ')}"`], {
-          stdio, windowsVerbatimArguments: true,
-        })
-      : spawn(command, args, { stdio });
+    const child = spawn(command, args, { stdio });
     child.once('error', reject);
     child.once('close', (code, signal) => {
       if (code === 0) resolve();
@@ -49,27 +44,27 @@ function run(name: string, command: string, args: string[], ...prerequisites: Pr
 const unitFiles = ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts'];
 if (checks.simulation) unitFiles.push('tests/engine.test.ts');
 if (checks.deployment) unitFiles.push('tests/deploy.test.ts');
-run('Unit tests', 'node', ['--test', ...unitFiles]);
+run('Unit tests', 'bun', ['test', '--isolate', '--randomize', ...unitFiles]);
 const needsChromium = checks.browser || checks.distribution;
 const dependencies = options.includes('--install-dependencies') && (checks.types || needsChromium)
-  ? run('Dependency install', 'npm', ['ci'])
+  ? run('Dependency install', 'bun', ['install', '--frozen-lockfile'])
   : Promise.resolve<CheckResult>('passed');
 
 if (checks.types) {
-  run('Test lint', 'npm', ['run', 'lint'], dependencies);
-  run('TypeScript', 'npm', ['run', 'typecheck'], dependencies);
+  run('Test lint', 'bun', ['run', 'lint'], dependencies);
+  run('TypeScript', 'bun', ['check'], dependencies);
 }
 
 const chromium = options.includes('--install-chromium') && needsChromium
-  ? run('Chromium setup', 'npx', ['--no-install', 'playwright', 'install', '--only-shell', 'chromium'], dependencies)
+  ? run('Chromium setup', 'bun', ['--bun', 'playwright', 'install', '--only-shell', 'chromium'], dependencies)
   : dependencies;
 
 if (checks.browser) {
-  run('Browser controls', 'npm', ['run', 'test:browser', '--', '--output=test-results/browser'], chromium);
+  run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], chromium);
 }
 
 if (checks.distribution) {
-  const build = run('Production build', 'npm', ['run', 'build'], dependencies);
+  const build = run('Production build', 'bun', ['run', 'build'], dependencies);
   if (options.includes('--check-committed')) {
     check('Standalone parity', async () => {
       const generated = await readFile('play.html');
@@ -80,7 +75,7 @@ if (checks.distribution) {
       if (!generated.equals(committed)) throw new Error('generated play.html differs from HEAD:play.html');
     }, build);
   }
-  run('Distribution', 'npm', ['run', 'test:distribution', '--', '--output=test-results/distribution'], build, chromium);
+  run('Distribution', 'bun', ['run', 'test:distribution', '--output=test-results/distribution'], build, chromium);
 }
 
 const completed = await Promise.all(Array.from(results, async ([name, status]) => ({ name, status: await status })));

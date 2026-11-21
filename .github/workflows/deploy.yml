@@ -10,7 +10,9 @@ on:
       - 'favicon.svg'
       - 'LICENSE'
       - 'package.json'
-      - 'package-lock.json'
+      - 'bun.lock'
+      - 'bunfig.toml'
+      - 'scripts/install-bun.sh'
       - 'tsconfig*.json'
       - 'vite.config.*'
       - 'scripts/standalone.ts'
@@ -30,7 +32,7 @@ concurrency:
 jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     environment:
       name: bunny-production
@@ -40,6 +42,7 @@ jobs:
         with:
           # A queued/manual run must not restore an older main snapshot.
           ref: main
+          filter: blob:none
           persist-credentials: false
       - name: Wait for successful main CI on the deployed revision
         env:
@@ -58,12 +61,10 @@ jobs:
           done
           echo "Timed out waiting for main CI on $revision" >&2
           exit 1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22.18.0'
-          cache: npm
-      - run: npm ci
-      - run: npm run build
+      - name: Install pinned Bun
+        run: bash scripts/install-bun.sh
+      - run: bun install --frozen-lockfile
+      - run: bun run build
       - name: Check committed standalone build
         run: git show HEAD:play.html | cmp - play.html
       - name: Upload production files
@@ -71,7 +72,7 @@ jobs:
           BUNNY_STORAGE_ZONE: ${{ vars.BUNNY_STORAGE_ZONE }}
           BUNNY_STORAGE_HOST: ${{ vars.BUNNY_STORAGE_HOST }}
           BUNNY_STORAGE_PASSWORD: ${{ secrets.BUNNY_STORAGE_PASSWORD }}
-        run: node scripts/deploy.ts
+        run: bun scripts/deploy.ts
       - name: Record deployed revision
         run: |
           revision=$(git rev-parse HEAD)
