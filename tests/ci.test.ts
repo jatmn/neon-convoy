@@ -320,6 +320,23 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
         { ...game, types: false },
         'retargeting a directory link selects simulation even if a nested link resolves outside the directory',
       );
+
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        '{"compilerOptions":{"paths":{"@terrain":["./public/active/terrain.json","./public/v1/terrain.json"]}}}',
+      );
+      writeFileSync(
+        join(dir, 'src/engine.ts'),
+        'import terrain from "@terrain"; export const cellSize = terrain.cellSize;',
+      );
+      const beforeTypeChange = commit();
+      rmSync(directoryLink);
+      writeFileSync(directoryLink, 'regular file');
+      assert.deepEqual(
+        run(beforeTypeChange, commit()),
+        { ...game, types: false },
+        'replacing a directory link with a file can redirect an import to an unchanged fallback',
+      );
     }
 
     writeFileSync(

@@ -106,7 +106,7 @@ function simulationImports(paths: string[]) {
   }
 }
 
-export function checksFor(paths: string[], hasDeletions = false) {
+export function checksFor(paths: string[], hasDeletionOrTypeChange = false) {
   if (
     paths.some(
       (path) =>
@@ -121,9 +121,9 @@ export function checksFor(paths: string[], hasDeletions = false) {
   const playwrightConfig = paths.some((path) => sharedPlaywrightConfig.test(path));
   return {
     types: paths.some((path) => /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path)),
-    // A deleted input can redirect an import to an unchanged fallback in the head graph.
+    // Deleting a path or changing its file type can redirect an import to an unchanged fallback.
     simulation:
-      hasDeletions ||
+      hasDeletionOrTypeChange ||
       paths.includes('src/types.ts') ||
       paths.includes('tests/engine.test.ts') ||
       simulationImports(paths),
@@ -150,19 +150,19 @@ function changesBetween(base: string, head: string) {
     encoding: 'utf8',
   }).split('\0');
   const paths: string[] = [];
-  let hasDeletions = false;
+  let hasDeletionOrTypeChange = false;
   for (let index = 0; index + 1 < entries.length; index += 2) {
     paths.push(entries[index + 1]);
-    if (entries[index] === 'D') hasDeletions = true;
+    if (entries[index] === 'D' || entries[index] === 'T') hasDeletionOrTypeChange = true;
   }
-  return { paths, hasDeletions };
+  return { paths, hasDeletionOrTypeChange };
 }
 
 export function validationChecks(mode: string, base: string, head: string) {
   if (mode === 'full') return fullChecks;
   if (mode === 'selected' && base && head) {
-    const { paths, hasDeletions } = changesBetween(base, head);
-    return checksFor(paths, hasDeletions);
+    const { paths, hasDeletionOrTypeChange } = changesBetween(base, head);
+    return checksFor(paths, hasDeletionOrTypeChange);
   }
   throw new Error('Expected full validation or selected validation with base and head SHAs');
 }
