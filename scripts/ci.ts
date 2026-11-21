@@ -71,20 +71,23 @@ function simulationImports(paths: string[]) {
     const directory = mkdtempSync(join(tmpdir(), 'neon-simulation-'));
     try {
       const metadata = join(directory, 'bundle.json');
+      // Unresolved computed imports can hide inputs from the metafile.
       execFileSync(
         process.execPath,
-        ['build', '--target=bun', '--packages=external', `--metafile=${metadata}`, 'tests/engine.test.ts'],
+        [
+          'build',
+          '--target=bun',
+          '--packages=external',
+          '--reject-unresolved',
+          `--metafile=${metadata}`,
+          'tests/engine.test.ts',
+        ],
         { stdio: ['ignore', 'ignore', 'pipe'] },
       );
       const graph: { inputs: Record<string, { imports: { path: string; external?: boolean }[] }> } =
         JSON.parse(readFileSync(metadata, 'utf8'));
-      for (const [file, input] of Object.entries(graph.inputs)) {
-        // Computed references or non-Node externals can hide a local input.
-        if (
-          /\b(?:import|require)\s*\(/.test(readFileSync(file, 'utf8')) ||
-          input.imports.some((entry) => entry.external && !isBuiltin(entry.path))
-        )
-          return true;
+      for (const { imports } of Object.values(graph.inputs)) {
+        if (imports.some((entry) => entry.external && !isBuiltin(entry.path))) return true;
       }
       return paths.some((path) => {
         if (Object.hasOwn(graph.inputs, path)) return true;

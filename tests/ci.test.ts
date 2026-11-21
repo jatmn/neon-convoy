@@ -1,26 +1,61 @@
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checksFor, validationChecks } from '../scripts/ci.ts';
+import { validationChecks } from '../scripts/ci.ts';
 
 const ownedNone = { types: false, browser: false, distribution: false, deployment: false };
 const ownedGame = { ...ownedNone, types: true, browser: true, distribution: true };
 const none = { ...ownedNone, simulation: false };
 const game = { ...ownedGame, simulation: true };
 const all = { ...game, deployment: true };
+const selector = new URL('../scripts/ci.ts', import.meta.url);
+
+let ownershipFixture: string;
+before(() => {
+  ownershipFixture = mkdtempSync(join(tmpdir(), 'neon-ownership-'));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: ownershipFixture });
+  git('init', '-q');
+  mkdirSync(join(ownershipFixture, 'src'));
+  mkdirSync(join(ownershipFixture, 'tests'));
+  writeFileSync(join(ownershipFixture, 'tsconfig.json'), '{}');
+  writeFileSync(join(ownershipFixture, 'src/levels.ts'), 'export const cellSize = 4;');
+  writeFileSync(join(ownershipFixture, 'src/engine.ts'), 'export { cellSize } from "./levels.ts";');
+  writeFileSync(
+    join(ownershipFixture, 'tests/engine.test.ts'),
+    'import { cellSize } from "../src/engine.ts"; console.log(cellSize);',
+  );
+  git('add', '.');
+});
+after(() => {
+  if (ownershipFixture) rmSync(ownershipFixture, { recursive: true, force: true });
+});
+
+function fixtureChecks(paths: string[]) {
+  return JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        '-e',
+        'const { checksFor } = await import(process.argv[1]); console.log(JSON.stringify(checksFor(process.argv.slice(2))));',
+        selector.href,
+        ...paths,
+      ],
+      { cwd: ownershipFixture, encoding: 'utf8' },
+    ),
+  );
+}
 
 function assertOwnedChecks(paths: string[], expected: typeof ownedNone) {
-  const { simulation: _simulation, ...owned } = checksFor(paths);
-  assert.deepEqual(owned, expected, paths.join(', '));
+  assert.deepEqual(fixtureChecks(paths), { ...expected, simulation: false }, paths.join(', '));
 }
 
 void test('documentation and screenshots have no owned checks', () => {
   assertOwnedChecks(['README.md', 'docs/validation.md', 'docs/screenshots/mobile.png'], ownedNone);
-  assert.deepEqual(checksFor([]), none);
+  assert.deepEqual(fixtureChecks([]), none);
 });
 
 void test('shared tooling and unclassified paths validate every surface', () => {
@@ -42,15 +77,15 @@ void test('shared tooling and unclassified paths validate every surface', () => 
     'scripts/helper.mjs',
     'src/helper.js',
   ]) {
-    assert.deepEqual(checksFor([path]), all, path);
+    assert.deepEqual(fixtureChecks([path]), all, path);
   }
 });
 
 void test('core simulation sources select simulation, browser and distribution checks', () => {
   for (const path of ['src/engine.ts', 'src/levels.ts', 'src/types.ts']) {
-    assert.deepEqual(checksFor([path]), game, path);
+    assert.deepEqual(fixtureChecks([path]), game, path);
   }
-  assert.deepEqual(checksFor(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
+  assert.deepEqual(fixtureChecks(['tests/engine.test.ts']), { ...none, types: true, simulation: true });
 });
 
 void test('UI and assets exercise browser and distribution', () => {
@@ -82,7 +117,7 @@ void test('test and packaging changes select their owned checks', () => {
   }
   for (const path of ['LICENSE', 'play.html'])
     assertOwnedChecks([path], { ...ownedNone, distribution: true });
-  assert.deepEqual(checksFor(['tests/engine.test.ts', 'play.html']), {
+  assert.deepEqual(fixtureChecks(['tests/engine.test.ts', 'play.html']), {
     ...none,
     types: true,
     simulation: true,
@@ -101,7 +136,7 @@ void test('deployment and routing changes select their owned checks', () => {
 
 void test('CI entry point handles PR base divergence, deletions, renames and full validation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'neon-ci-'));
-  const script = fileURLToPath(new URL('../scripts/ci.ts', import.meta.url));
+  const script = fileURLToPath(selector);
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   const commit = () => {
     git('add', '.');
@@ -288,15 +323,28 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     }
 
     writeFileSync(
+      join(dir, 'src/engine.ts'),
+      'export const loadTerrain = (path: string) => import /* runtime-loaded fixture */ (path);',
+    );
+    writeFileSync(
       join(dir, 'tests/engine.test.ts'),
-      'const { cellSize } = await import("../src/engine.ts"); console.log(cellSize);',
+      'import { loadTerrain } from "../src/engine.ts"; console.log((await loadTerrain("../public/terrain.json")).default.cellSize);',
     );
     const computedImport = commit();
-    writeFileSync(join(dir, 'README.md'), 'documentation');
+    writeFileSync(join(dir, 'public/terrain.json'), '{"cellSize":16}');
     assert.deepEqual(
       run(computedImport, commit()),
-      { ...none, simulation: true },
-      'a computed graph import selects simulation for an otherwise unrelated change',
+      { ...game, types: false },
+      'an edit to a runtime-loaded asset selects simulation when Bun cannot resolve its computed import',
+    );
+
+    writeFileSync(join(dir, 'tsconfig.json'), '{"extends":["./public/terrain-package/shared.json"]}');
+    const unsupportedInheritance = commit();
+    writeFileSync(join(dir, 'README.md'), 'documentation');
+    assert.deepEqual(
+      run(unsupportedInheritance, commit()),
+      all,
+      'unsupported resolver inheritance selects all checks for an otherwise unrelated edit',
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
