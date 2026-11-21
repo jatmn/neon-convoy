@@ -86,8 +86,8 @@ Every PR should:
 - Keep credentials, private logs, personal data, and local machine paths out of
   committed files and shared evidence.
 
-Use the Bun version pinned in `package.json`. Install dependencies with
-`bun install --frozen-lockfile` and use `bun run dev` for local development.
+Follow the [development setup](README.md#develop) to install the pinned Bun
+canary, verify its revision, and install project dependencies.
 
 For code, tooling, dependency, or build changes, run the full local validation:
 

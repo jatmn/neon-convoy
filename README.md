@@ -57,7 +57,15 @@ Every level has a distinct original looping synthwave arrangement, synthesized i
 
 ## Develop
 
-Requires Bun **1.4.6-canary.1** (revision `7bb427f3b`, pinned in `package.json`).
+Use npm to install the Bun canary pinned in [`package.json`](package.json).
+
+```sh
+npm install --global bun@1.4.5-canary.20261120.1
+bun --revision
+```
+
+The expected revision is `1.4.6-canary.1+7bb427f3b`. Then install the project
+dependencies and start the dev server.
 
 ```sh
 bun install --frozen-lockfile
