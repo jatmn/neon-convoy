@@ -48,19 +48,61 @@ function signalGroup(pid: number, signal: NodeJS.Signals) {
   }
 }
 
-function groupHasLiveProcesses(pid: number) {
-  const processes = execFileSync('ps', ['-A', '-o', 'pgid=', '-o', 'stat='], { encoding: 'utf8' });
-  return processes.split('\n').some((line) => {
-    const [group, state] = line.trim().split(/\s+/);
-    return Number(group) === pid && !state?.startsWith('Z');
-  });
+function liveProcessGroups(root: number, tracked: Map<number, string>) {
+  const table = execFileSync(
+    'ps',
+    ['-A', '-o', 'pid=', '-o', 'ppid=', '-o', 'pgid=', '-o', 'stat=', '-o', 'lstart='],
+    {
+      encoding: 'utf8',
+    },
+  );
+  const processes = table
+    .trim()
+    .split('\n')
+    .map((line) => {
+      const [pid, parent, group, state, ...start] = line.trim().split(/\s+/);
+      return {
+        pid: Number(pid),
+        parent: Number(parent),
+        group: Number(group),
+        state,
+        start: start.join(' '),
+      };
+    })
+    .filter(({ state }) => state && !state.startsWith('Z'));
+
+  const groups = new Set<number>();
+  const owned = new Set<number>();
+  const firstSnapshot = tracked.size === 0;
+  for (const entry of processes) {
+    if (tracked.get(entry.pid) === entry.start || (firstSnapshot && entry.group === root)) {
+      owned.add(entry.pid);
+      groups.add(entry.group);
+    }
+  }
+
+  // Discover separate groups by ancestry, then keep their identities across reparenting.
+  let previousSize = -1;
+  while (owned.size !== previousSize) {
+    previousSize = owned.size;
+    for (const entry of processes) {
+      if (owned.has(entry.parent) || groups.has(entry.group)) {
+        owned.add(entry.pid);
+        groups.add(entry.group);
+        tracked.set(entry.pid, entry.start);
+      }
+    }
+  }
+  return groups;
 }
 
-async function waitForGroupExit(pid: number, deadline: number): Promise<void> {
-  if (!groupHasLiveProcesses(pid)) return;
-  if (Date.now() >= deadline) throw new Error('Verification process group is still running');
+async function killAndWait(root: number, tracked: Map<number, string>, deadline: number): Promise<void> {
+  const groups = liveProcessGroups(root, tracked);
+  if (!groups.size) return;
+  if (Date.now() >= deadline) throw new Error('Verification processes are still running');
+  for (const group of groups) signalGroup(group, 'SIGKILL');
   await delay(25);
-  await waitForGroupExit(pid, deadline);
+  await killAndWait(root, tracked, deadline);
 }
 
 async function stopCommand(pid: number) {
@@ -69,11 +111,13 @@ async function stopCommand(pid: number) {
     return;
   }
 
-  // Playwright handles SIGINT and can stop its own browser and web server groups.
-  signalGroup(pid, 'SIGINT');
+  const tracked = new Map<number, string>();
+  const groups = liveProcessGroups(pid, tracked);
+  if (!groups.size) return;
+  // Give Playwright a chance to close its separately launched browser and server groups.
+  if (groups.has(pid)) signalGroup(pid, 'SIGINT');
   await delay(shutdownGrace);
-  signalGroup(pid, 'SIGKILL');
-  await waitForGroupExit(pid, Date.now() + shutdownTimeout);
+  await killAndWait(pid, tracked, Date.now() + shutdownTimeout);
 }
 
 async function runCommand(

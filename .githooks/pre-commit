@@ -1,2 +1,17 @@
 #!/bin/sh
-test "${HK:-1}" = 0 || exec hk run pre-commit --from-hook "$@"
+if [ "${HK:-1}" = 0 ]; then
+  exit 0
+fi
+
+# A path-limited commit uses a second index while Git holds the real index lock.
+case "${GIT_INDEX_FILE##*/}" in
+  next-index-[0-9]*.lock)
+    if hk run pre-commit --from-hook --check --stash none --no-stage "$@"; then
+      exit 0
+    fi
+    printf '%s\n' 'Fix the reported checks and retry. For formatter errors, format the selected paths with bun fmt -- <paths>.' >&2
+    exit 1
+    ;;
+esac
+
+exec hk run pre-commit --from-hook "$@"
