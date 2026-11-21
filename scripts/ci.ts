@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import {
+  appendFileSync,
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { isBuiltin } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
@@ -44,7 +52,8 @@ function simulationImports(paths: string[]) {
       return paths.some((path) => {
         if (Object.hasOwn(graph.inputs, path)) return true;
         if (!lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
-        // Git reports the link, while Bun records its resolved target.
+        // Bun records resolved files. A directory alias can reach files through nested links.
+        if (statSync(path).isDirectory()) return true;
         const target = relative(process.cwd(), realpathSync(path)).replaceAll(sep, '/');
         return Object.hasOwn(graph.inputs, target);
       });

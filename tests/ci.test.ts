@@ -206,6 +206,25 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
       rmSync(link);
       symlinkSync('levels-v2.ts', link);
       assert.deepEqual(run(beforeRetarget, commit()), game, 'retargeting a changed link selects simulation');
+
+      mkdirSync(join(dir, 'public/v1'));
+      mkdirSync(join(dir, 'public/v2'));
+      writeFileSync(join(dir, 'public/v1/terrain.json'), '{"cellSize":4}');
+      symlinkSync('../terrain.json', join(dir, 'public/v2/terrain.json'));
+      const directoryLink = join(dir, 'public/active');
+      symlinkSync('v1', directoryLink, 'dir');
+      writeFileSync(
+        join(dir, 'src/engine.ts'),
+        'import terrain from "../public/active/terrain.json"; export const cellSize = terrain.cellSize;',
+      );
+      const beforeDirectoryRetarget = commit();
+      rmSync(directoryLink);
+      symlinkSync('v2', directoryLink, 'dir');
+      assert.deepEqual(
+        run(beforeDirectoryRetarget, commit()),
+        { ...game, types: false },
+        'retargeting a directory link selects simulation even if a nested link resolves outside the directory',
+      );
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
