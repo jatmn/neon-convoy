@@ -45,7 +45,7 @@ void test('simulation changes exercise their browser and build consumers', () =>
 void test('UI and assets exercise browser and distribution', () => {
   for (const path of ['src/main.ts', 'src/audio.ts', 'src/renderer.ts']) {
     const checks = checksFor([path]);
-    assert.equal(checks.types && checks.browser && checks.distribution, true, path);
+    assert.deepEqual(checks, { ...game, simulation: checks.simulation }, path);
   }
   for (const path of ['src/style.css', 'index.html', 'favicon.svg', '.gitattributes', 'public/texture.png']) {
     assert.deepEqual(checksFor([path]), { ...none, browser: true, distribution: true }, path);
@@ -98,14 +98,21 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     git('commit', '-qm', 'fixture');
     return git('rev-parse', 'HEAD');
   };
-  const run = (base: string, head: string) => {
+  const run = (base: string, head: string, temporaryDirectory = tmpdir()) => {
     const output = join(dir, 'outputs');
     writeFileSync(output, '');
-    const stdout = execFileSync(process.execPath, [script, base, head], {
+    const { status, stdout, stderr } = spawnSync(process.execPath, [script, base, head], {
       cwd: dir,
       encoding: 'utf8',
-      env: { ...process.env, GITHUB_OUTPUT: output },
+      env: {
+        ...process.env,
+        GITHUB_OUTPUT: output,
+        TMPDIR: temporaryDirectory,
+        TMP: temporaryDirectory,
+        TEMP: temporaryDirectory,
+      },
     });
+    assert.equal(status, 0, stderr);
     assert.equal(stdout, readFileSync(output, 'utf8'));
     return Object.fromEntries(
       stdout
@@ -121,6 +128,8 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     git('init', '-q', '-b', 'main');
     git('config', 'user.name', 'CI fixture');
     git('config', 'user.email', 'ci@example.invalid');
+    mkdirSync(join(dir, 'tests'));
+    writeFileSync(join(dir, 'tests/engine.test.ts'), 'console.log("simulation");');
     writeFileSync(join(dir, 'play.html'), 'standalone');
     writeFileSync(join(dir, '.gitignore'), 'outputs\n');
     commit();
@@ -150,9 +159,7 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
       'full validation runs everything on a docs-only revision',
     );
     mkdirSync(join(dir, 'src'));
-    mkdirSync(join(dir, 'tests'));
     writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 4;');
-    writeFileSync(join(dir, 'tests/engine.test.ts'), 'console.log("simulation");');
     const unlinked = commit();
     writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 5;');
     assert.deepEqual(
@@ -162,11 +169,44 @@ void test('CI entry point handles PR base divergence, deletions, renames and ful
     );
     writeFileSync(
       join(dir, 'tests/engine.test.ts'),
-      'import { cellSize } from "../src/audio.ts"; console.log(cellSize);',
+      'import { cellSize } from "../src/engine.ts"; console.log(cellSize);',
     );
+    writeFileSync(join(dir, 'src/engine.ts'), 'export { cellSize } from "./audio.ts";');
     const linked = commit();
     writeFileSync(join(dir, 'src/audio.ts'), 'export const cellSize = 8;');
-    assert.deepEqual(run(linked, commit()), game, 'a transitive source change selects simulation');
+    const changedSource = commit();
+    assert.deepEqual(run(linked, changedSource), game, 'a transitive source change selects simulation');
+    assert.deepEqual(
+      run(linked, changedSource, join(dir, 'missing-tmpdir')),
+      game,
+      'unavailable scratch space selects simulation',
+    );
+
+    mkdirSync(join(dir, 'public'));
+    writeFileSync(join(dir, 'public/terrain.json'), '{"cellSize":4}');
+    writeFileSync(
+      join(dir, 'src/engine.ts'),
+      'import terrain from "../public/terrain.json"; export const cellSize = terrain.cellSize;',
+    );
+    const terrain = commit();
+    writeFileSync(join(dir, 'public/terrain.json'), '{"cellSize":8}');
+    assert.deepEqual(
+      run(terrain, commit()),
+      { ...game, types: false },
+      'changing only a transitive JSON input selects simulation',
+    );
+
+    if (process.platform !== 'win32') {
+      writeFileSync(join(dir, 'src/levels-v1.ts'), 'export const cellSize = 4;');
+      writeFileSync(join(dir, 'src/levels-v2.ts'), 'export const cellSize = 8;');
+      const link = join(dir, 'src/levels.ts');
+      symlinkSync('levels-v1.ts', link);
+      writeFileSync(join(dir, 'src/engine.ts'), 'export { cellSize } from "./levels.ts";');
+      const beforeRetarget = commit();
+      rmSync(link);
+      symlinkSync('levels-v2.ts', link);
+      assert.deepEqual(run(beforeRetarget, commit()), game, 'retargeting a changed link selects simulation');
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -245,7 +285,10 @@ void test(
       git('init', '-q', '-b', 'main');
       git('config', 'user.name', 'CI fixture');
       git('config', 'user.email', 'ci@example.invalid');
-      git('commit', '-qm', 'root', '--allow-empty');
+      mkdirSync(join(dir, 'tests'));
+      writeFileSync(join(dir, 'tests/engine.test.ts'), 'console.log("simulation");');
+      git('add', 'tests/engine.test.ts');
+      git('commit', '-qm', 'root');
       writeFileSync(join(dir, 'README.md'), 'docs');
       git('add', 'README.md');
       git('commit', '-qm', 'docs');
@@ -446,8 +489,13 @@ void test('distribution gate compares the generated file with the committed stan
         },
       }),
     );
-    for (const file of ['tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts']) {
-      mkdirSync(join(dir, file.split('/')[0]));
+    mkdirSync(join(dir, 'tests'));
+    mkdirSync(join(dir, 'scripts'));
+    for (const file of [
+      'tests/ci.test.ts',
+      'tests/engine.test.ts',
+      'scripts/pullfrog-command-check.test.ts',
+    ]) {
       writeFileSync(join(dir, file), 'import { test } from "node:test"; test("fixture", () => {});');
     }
     execFileSync(process.execPath, ['fmt'], { cwd: dir });

@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const fullChecks = { types: true, simulation: true, browser: true, distribution: true, deployment: true };
@@ -21,32 +21,39 @@ const ownedInputs = [
 ];
 
 function simulationImports(paths: string[]) {
-  if (!paths.some((path) => path.startsWith('src/') && path.endsWith('.ts'))) return false;
-  const directory = mkdtempSync(join(tmpdir(), 'neon-simulation-'));
-  const metadata = join(directory, 'bundle.json');
+  if (paths.length === 0) return false;
   try {
-    execFileSync(
-      process.execPath,
-      ['build', '--target=bun', '--packages=external', `--metafile=${metadata}`, 'tests/engine.test.ts'],
-      { stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-    const graph: { inputs: Record<string, { imports: { path: string; external?: boolean }[] }> } = JSON.parse(
-      readFileSync(metadata, 'utf8'),
-    );
-    for (const [file, input] of Object.entries(graph.inputs)) {
-      // Computed references or non-Node externals can hide a local input.
-      if (
-        /\b(?:import|require)\s*\(/.test(readFileSync(file, 'utf8')) ||
-        input.imports.some((entry) => entry.external && !isBuiltin(entry.path))
-      )
-        return true;
+    const directory = mkdtempSync(join(tmpdir(), 'neon-simulation-'));
+    try {
+      const metadata = join(directory, 'bundle.json');
+      execFileSync(
+        process.execPath,
+        ['build', '--target=bun', '--packages=external', `--metafile=${metadata}`, 'tests/engine.test.ts'],
+        { stdio: ['ignore', 'ignore', 'pipe'] },
+      );
+      const graph: { inputs: Record<string, { imports: { path: string; external?: boolean }[] }> } =
+        JSON.parse(readFileSync(metadata, 'utf8'));
+      for (const [file, input] of Object.entries(graph.inputs)) {
+        // Computed references or non-Node externals can hide a local input.
+        if (
+          /\b(?:import|require)\s*\(/.test(readFileSync(file, 'utf8')) ||
+          input.imports.some((entry) => entry.external && !isBuiltin(entry.path))
+        )
+          return true;
+      }
+      return paths.some((path) => {
+        if (Object.hasOwn(graph.inputs, path)) return true;
+        if (!lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) return false;
+        // Git reports the link, while Bun records its resolved target.
+        const target = relative(process.cwd(), realpathSync(path)).replaceAll(sep, '/');
+        return Object.hasOwn(graph.inputs, target);
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
     }
-    return paths.some((path) => Object.hasOwn(graph.inputs, path));
   } catch (error) {
     console.warn('Simulation dependency analysis failed; running the simulation suite.', error);
     return true;
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
   }
 }
 
