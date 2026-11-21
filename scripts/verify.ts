@@ -120,11 +120,20 @@ const chromium =
 let browserSetup = chromium;
 if (jobStartedAt) {
   const started = Number(jobStartedAt);
-  browserSetup = chromium.then((status) => {
-    if (status !== 'passed') return 'blocked';
+  const budget = 15_000;
+  const elapsedAtLaunch = Date.now() - started;
+  const remaining = elapsedAtLaunch >= 0 && elapsedAtLaunch < budget ? budget - elapsedAtLaunch : 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<'expired'>((resolve) => {
+    timer = setTimeout(() => resolve('expired'), remaining);
+  });
+  // The browser gate can fail at the deadline while installation still owns its output and result.
+  browserSetup = Promise.race([chromium, deadline]).then((status) => {
+    clearTimeout(timer);
     const elapsed = Date.now() - started;
-    const withinBudget = elapsed >= 0 && elapsed < 15_000;
-    console.log(`Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit 15000 ms)`);
+    const withinBudget = status !== 'expired' && elapsed >= 0 && elapsed < budget;
+    if (withinBudget && status !== 'passed') return 'blocked';
+    console.log(`Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit ${budget} ms)`);
     return withinBudget ? 'passed' : 'failed';
   });
   results.set('Setup budget', browserSetup);

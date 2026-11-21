@@ -524,49 +524,64 @@ void test(
     const dir = mkdtempSync(join(tmpdir(), 'neon-budget-'));
     const script = fileURLToPath(new URL('../scripts/verify.ts', import.meta.url));
     const budgetLog = join(dir, 'budget.log');
+    const outputLog = join(dir, 'output.log');
     try {
       writeFileSync(
         join(dir, 'bun'),
         `#!/bin/sh
-case "$1:$2:$FORMAT_FIXTURE" in
+set -e
+wait_for_report() {
+  attempts=0
+  while [ "$attempts" -lt 50 ]; do
+    if grep -q "$1" "$2"; then return 0; fi
+    attempts=$((attempts + 1))
+    sleep 0.05
+  done
+  return 9
+}
+case "$1:$2:$TIMING_FIXTURE" in
   fmt:--check:slow) sleep 1.1 ;;
   fmt:--check:stall)
-    attempts=0
-    while [ "$attempts" -lt 50 ]; do
-      if grep -q '^Format: failed (budget 1000 ms)' "$BUDGET_LOG"; then
-        echo "Formatter saw budget failure before exiting"
-        exit 0
-      fi
-      attempts=$((attempts + 1))
-      sleep 0.05
-    done
-    exit 9
+    wait_for_report '^Format: failed (budget 1000 ms)' "$BUDGET_LOG"
+    echo "Formatter saw budget failure before exiting"
     ;;
+  install:--frozen-lockfile:dependencies|--bun:playwright:chromium)
+    wait_for_report '^Setup budget: failed' "$OUTPUT_LOG"
+    echo "Installer saw budget failure before exiting"
+    ;;
+  --bun:playwright:install-error) exit 9 ;;
 esac
 `,
         { mode: 0o755 },
       );
-      const run = (started: string, format: string) => {
-        const output = openSync(budgetLog, 'w');
+      const run = (started: string, fixture: string, ...options: string[]) => {
+        const stdout = openSync(outputLog, 'w');
+        const stderr = openSync(budgetLog, 'w');
         try {
-          const result = spawnSync(process.execPath, [script], {
+          const result = spawnSync(process.execPath, [script, 'full', '', '', ...options], {
             cwd: dir,
             encoding: 'utf8',
-            stdio: ['ignore', 'pipe', output],
+            stdio: ['ignore', stdout, stderr],
             timeout: 5_000,
             env: {
               ...process.env,
               PATH: `${dir}:${process.env.PATH}`,
               CI: '1',
               GAME_CHECK_STARTED_MS: started,
-              FORMAT_FIXTURE: format,
+              TIMING_FIXTURE: fixture,
               BUDGET_LOG: budgetLog,
+              OUTPUT_LOG: outputLog,
             },
           });
           assert.ifError(result.error);
-          return { status: result.status, stdout: result.stdout, stderr: readFileSync(budgetLog, 'utf8') };
+          return {
+            status: result.status,
+            stdout: readFileSync(outputLog, 'utf8'),
+            stderr: readFileSync(budgetLog, 'utf8'),
+          };
         } finally {
-          closeSync(output);
+          closeSync(stdout);
+          closeSync(stderr);
         }
       };
       const local = run('', 'slow');
@@ -588,6 +603,32 @@ esac
       assert.match(expired.stdout, /^Production build: passed/m);
       assert.doesNotMatch(expired.stdout, /^(Browser controls|Distribution): started$/m);
       assert.match(expired.stderr, /^Blocked game checks: Browser controls, Distribution$/m);
+
+      for (const installer of ['dependencies', 'chromium']) {
+        const pending = run(
+          String(Date.now() - 14_500),
+          installer,
+          '--install-dependencies',
+          '--install-chromium',
+        );
+        assert.equal(pending.status, 1, pending.stderr);
+        assert.match(pending.stdout, /^Setup budget: failed in \d+ ms \(limit 15000 ms\)$/m);
+        assert.match(pending.stdout, /^Installer saw budget failure before exiting$/m);
+        assert.match(pending.stdout, /^Unit tests: passed/m);
+        assert.match(pending.stdout, /^Production build: passed/m);
+        assert.doesNotMatch(pending.stdout, /^(Browser controls|Distribution): started$/m);
+        assert.match(pending.stderr, /^Failed game checks: Setup budget$/m);
+        assert.match(pending.stderr, /^Blocked game checks: Browser controls, Distribution$/m);
+      }
+
+      const installError = run(String(Date.now()), 'install-error', '--install-chromium');
+      assert.equal(installError.status, 1, installError.stderr);
+      assert.doesNotMatch(installError.stdout, /^Setup budget:/m);
+      assert.match(installError.stderr, /^Failed game checks: Chromium setup$/m);
+      assert.match(
+        installError.stderr,
+        /^Blocked game checks: Setup budget, Browser controls, Distribution$/m,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
