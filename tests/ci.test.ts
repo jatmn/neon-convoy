@@ -596,13 +596,13 @@ esac
       assert.match(hosted.stdout, /^Browser controls: passed/m);
       assert.match(hosted.stdout, /^Distribution: passed/m);
 
-      const expired = run(String(Date.now() - 15_000), 'quick');
+      const expired = run(String(Date.now() - 15_000), 'quick', '--install-chromium');
       assert.equal(expired.status, 1, expired.stderr);
       assert.match(expired.stdout, /^Setup budget: failed/m);
       assert.match(expired.stdout, /^Unit tests: passed/m);
       assert.match(expired.stdout, /^Production build: passed/m);
-      assert.doesNotMatch(expired.stdout, /^(Browser controls|Distribution): started$/m);
-      assert.match(expired.stderr, /^Blocked game checks: Browser controls, Distribution$/m);
+      assert.doesNotMatch(expired.stdout, /^(Chromium setup|Browser controls|Distribution): started$/m);
+      assert.match(expired.stderr, /^Blocked game checks: Chromium setup, Browser controls, Distribution$/m);
 
       for (const installer of ['dependencies', 'chromium']) {
         const pending = run(
@@ -618,7 +618,16 @@ esac
         assert.match(pending.stdout, /^Production build: passed/m);
         assert.doesNotMatch(pending.stdout, /^(Browser controls|Distribution): started$/m);
         assert.match(pending.stderr, /^Failed game checks: Setup budget$/m);
-        assert.match(pending.stderr, /^Blocked game checks: Browser controls, Distribution$/m);
+        if (installer === 'dependencies') {
+          assert.doesNotMatch(pending.stdout, /^Chromium setup: started$/m);
+          assert.match(
+            pending.stderr,
+            /^Blocked game checks: Chromium setup, Browser controls, Distribution$/m,
+          );
+        } else {
+          assert.match(pending.stdout, /^Chromium setup: started$/m);
+          assert.match(pending.stderr, /^Blocked game checks: Browser controls, Distribution$/m);
+        }
       }
 
       const installError = run(String(Date.now()), 'install-error', '--install-chromium');
@@ -663,7 +672,11 @@ void test(
     const startClock = step('Start job timing lookup');
     const lookup = step('Detect the main merge queue');
     const verify = step('Run game checks');
-    const enforce = step('Enforce elapsed job budget');
+    const enforce = step('Enforce elapsed validation budget');
+    assert.ok(
+      workflow.indexOf('- name: Enforce elapsed validation budget') <
+        workflow.indexOf('actions/upload-artifact@'),
+    );
     assert.match(lookup.configuration, /GH_TOKEN:/);
     assert.match(verify.configuration, /QUEUE_ACTIVE: \$\{\{ steps\.queue\.outputs\.active \}\}/);
     assert.doesNotMatch(verify.configuration, /GH_TOKEN|github\.token/);
@@ -697,12 +710,26 @@ fi
 [ "$#" = 5 ] && [ "$1" = api ] && [ "$2" = repos/fixture/game/rules/branches/main ] &&
   [ "$3" = --paginate ] && [ "$4" = --jq ] && [ "$5" = '.[] | select(.type == "merge_queue") | .type' ] || exit 2
 [ "$API_RULES" != error ] || exit 1
+if [ "$API_RULES" = stalled ]; then exec "$TEST_BUN" -e 'await Bun.sleep(5000)'; fi
 "$TEST_BUN" -e 'for (const rule of JSON.parse(process.env.API_RULES)) if (rule.type === "merge_queue") console.log(rule.type)'
 `,
         { mode: 0o755 },
       );
+      mkdirSync(join(dir, 'scripts'));
       writeFileSync(
-        join(dir, 'bun'),
+        join(dir, 'scripts', 'install-bun.sh'),
+        `#!/bin/sh
+if [ "$BUN_BOOTSTRAP" = stalled ]; then
+  echo 'Pinned Bun installation started'
+  exec "$TEST_BUN" -e 'await Bun.sleep(5000)'
+fi
+if [ -n "$AFTER_BUN_NOW" ]; then echo "$AFTER_BUN_NOW" > "$RUNNER_TEMP/after-bun-time"; fi
+exit "\${BUN_BOOTSTRAP:-0}"
+`,
+      );
+      mkdirSync(join(dir, 'neon-bun'));
+      writeFileSync(
+        join(dir, 'neon-bun', 'bun'),
         `#!/bin/sh
 [ "$1 $3 $4 $5 $6 $7" = "scripts/verify.ts base head --install-dependencies --install-chromium --check-committed" ] || exit 2
 [ "$GAME_CHECK_STARTED_MS:$GAME_CHECK_DEADLINE_MS" = "99000:132000" ] || exit 2
@@ -717,7 +744,11 @@ if [ "$1" = "-u" ]; then
   [ "$*" = '-u -d 1970-01-01T00:01:39Z +%s%3N' ] || exit 2
   echo 99000
 else
-  echo "\${MOCK_NOW:-100000}"
+  if [ -n "$RUNNER_TEMP" ] && [ -f "$RUNNER_TEMP/after-bun-time" ]; then
+    cat "$RUNNER_TEMP/after-bun-time"
+  else
+    echo "\${MOCK_NOW:-100000}"
+  fi
 fi
 `,
         { mode: 0o755 },
@@ -738,11 +769,13 @@ esac
         `#!/bin/sh
 case "$1 $2 $3 $4" in
   "--kill-after=1s 32.000s bun scripts/verify.ts") shift 2; exec "$@" ;;
+  "--kill-after=1s 14.000s bash scripts/install-bun.sh") shift 2; milliseconds=200 ;;
   "--kill-after=1s 14s bash -c") shift 2; milliseconds=900 ;;
+  "--kill-after=1s 3s gh api") shift 2; milliseconds=200 ;;
   "--foreground --kill-after=1s 3s gh") shift 3; milliseconds=200 ;;
   *) exit 2 ;;
 esac
-FIXTURE_TIMEOUT="$milliseconds" exec "$TEST_BUN" -e 'const child = Bun.spawn(process.argv.slice(1), { stdout: "inherit", stderr: "inherit", timeout: Number(process.env.FIXTURE_TIMEOUT) }); process.exit(await child.exited);' "$@"
+FIXTURE_TIMEOUT="$milliseconds" exec "$TEST_BUN" -e 'const child = Bun.spawn(process.argv.slice(1), { stdout: "inherit", stderr: "inherit", timeout: Number(process.env.FIXTURE_TIMEOUT) }); const status = await child.exited; process.exit(child.signalCode ? 124 : status);' "$@"
 `,
         { mode: 0o755 },
       );
@@ -753,7 +786,14 @@ FIXTURE_TIMEOUT="$milliseconds" exec "$TEST_BUN" -e 'const child = Bun.spawn(pro
           cwd: dir,
           encoding: 'utf8',
           timeout: 5000,
-          env: { PATH: `${dir}:${process.env.PATH}`, GITHUB_OUTPUT: output, ...env },
+          env: {
+            PATH: `${dir}:${process.env.PATH}`,
+            GITHUB_OUTPUT: output,
+            TMPDIR: dir,
+            TMP: dir,
+            TEMP: dir,
+            ...env,
+          },
         });
         assert.equal(result.status, expectedStatus, result.stderr);
         return { output: readFileSync(output, 'utf8').trim(), stdout: result.stdout.trim() };
@@ -764,12 +804,14 @@ FIXTURE_TIMEOUT="$milliseconds" exec "$TEST_BUN" -e 'const child = Bun.spawn(pro
         BASE_SHA: 'base',
         HEAD_SHA: 'head',
         RUNNER_TEMP: dir,
+        TEST_BUN: process.execPath,
       });
       const mode = (queue: string) => run(verify.command, verifyEnv(queue)).stdout;
       for (const [rules, expected] of [
         ['[{"type":"required_status_checks"},{"type":"merge_queue"}]', 'selected'],
         ['[{"type":"required_status_checks"}]', 'full'],
         ['error', 'full'],
+        ['stalled', 'full'],
       ]) {
         const queue = run(lookup.command, {
           GH_REPO: 'fixture/game',
@@ -808,17 +850,40 @@ FIXTURE_TIMEOUT="$milliseconds" exec "$TEST_BUN" -e 'const child = Bun.spawn(pro
       const expired = run(verify.command, { ...verifyEnv(''), MOCK_NOW: '115000' }, 1);
       assert.match(expired.stdout, /GitHub job start time is unavailable/);
 
-      const enforceEnv = { RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: output };
+      const enforceEnv = { RUNNER_TEMP: dir, GITHUB_STEP_SUMMARY: output, CHECKOUT_OUTCOME: 'success' };
       assert.equal(run(enforce.command, enforceEnv).output, '');
       writeFileSync(join(dir, 'game-check-start'), '99000\n');
-      assert.match(run(enforce.command, enforceEnv).output, /runner elapsed: 1000 ms/);
+      assert.match(
+        run(enforce.command, enforceEnv).output,
+        /runner elapsed before artifact handling: 1000 ms/,
+      );
       const belowBudget = run(enforce.command, { ...enforceEnv, MOCK_NOW: '131999' });
-      assert.match(belowBudget.output, /runner elapsed: 32999 ms/);
+      assert.match(belowBudget.output, /runner elapsed before artifact handling: 32999 ms/);
       const overBudget = run(enforce.command, { ...enforceEnv, MOCK_NOW: '132000' }, 1);
-      assert.match(overBudget.output, /runner elapsed: 33000 ms \(33000 ms work cutoff, 2000 ms reserved/);
-      const cutoffMessage = /reached the 33 s work cutoff\. The job reserves 2 s for finalization\./;
+      assert.match(
+        overBudget.output,
+        /runner elapsed before artifact handling: 33000 ms \(33000 ms validation cutoff\)/,
+      );
+      const cutoffMessage = /reached the 33 s validation cutoff\./;
       assert.match(overBudget.stdout, cutoffMessage);
-      assert.match(run(verify.command, { ...verifyEnv(''), MOCK_NOW: '132000' }, 1).stdout, cutoffMessage);
+      const checkoutOverrun = run(
+        enforce.command,
+        { ...enforceEnv, MOCK_NOW: '114000', CHECKOUT_OUTCOME: 'failure' },
+        1,
+      );
+      assert.match(checkoutOverrun.stdout, /Setup budget: checkout failed after the 15000 ms limit/);
+      const setupMessage = /Setup budget: failed before verification \(15000 ms limit\)\./;
+      const expiredCheckout = run(verify.command, { ...verifyEnv(''), MOCK_NOW: '114000' }, 1);
+      assert.match(expiredCheckout.stdout, setupMessage);
+      const stalledBootstrap = run(verify.command, { ...verifyEnv(''), BUN_BOOTSTRAP: 'stalled' }, 124);
+      assert.match(stalledBootstrap.stdout, /Pinned Bun installation started/);
+      assert.match(stalledBootstrap.stdout, setupMessage);
+      const failedBootstrap = run(verify.command, { ...verifyEnv(''), BUN_BOOTSTRAP: '9' }, 9);
+      assert.doesNotMatch(failedBootstrap.stdout, setupMessage);
+      assert.match(
+        run(verify.command, { ...verifyEnv(''), AFTER_BUN_NOW: '132000' }, 1).stdout,
+        cutoffMessage,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

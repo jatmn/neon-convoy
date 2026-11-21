@@ -1,11 +1,20 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { test as base } from '@playwright/test';
+import type { LaunchOptions } from '@playwright/test';
 
 export { expect } from '@playwright/test';
 
 const screenshotBudget = 500;
 
-export const test = base.extend<{ screenshotDeadline: number }>({
+export const test = base.extend<{ screenshotDeadline: number }, { launchOptions: LaunchOptions }>({
+  launchOptions: [
+    async ({ launchOptions }, use, workerInfo) => {
+      const deadline = Number(workerInfo.config.metadata.startupDeadline);
+      const remaining = deadline ? Math.max(1, deadline - Date.now()) : undefined;
+      await use(remaining === undefined ? launchOptions : { ...launchOptions, timeout: remaining });
+    },
+    { scope: 'worker' },
+  ],
   screenshotDeadline: [
     async ({ browserName }, use, testInfo) => {
       const suiteDeadline = Number(testInfo.config.metadata.suiteDeadline);

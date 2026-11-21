@@ -8,6 +8,12 @@ Run `bun scripts/check-browser-deadline.ts` to check that a stalled font and a
 busy renderer each produce a named timeout and a finalized trace before the
 verifier deadline.
 
+Hosted Game checks measure elapsed time from the GitHub job start. Bun
+bootstrap and browser setup share the 15-second setup budget. The 33-second
+validation cutoff includes time already spent checking out the revision and is
+checked before failure artifacts are uploaded. GitHub's checkout and upload
+actions use the workflow's one-minute job timeout.
+
 ## TypeScript migration results
 
 TypeScript migration validated on September 29, 2026 with Node 22.23.1 and the Chromium revision installed by pinned Playwright 1.63.0.

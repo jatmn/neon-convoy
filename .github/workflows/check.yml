@@ -49,7 +49,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          if queue=$(gh api "repos/$GH_REPO/rules/branches/main" --paginate --jq '.[] | select(.type == "merge_queue") | .type'); then
+          if queue=$(timeout --kill-after=1s 3s gh api "repos/$GH_REPO/rules/branches/main" --paginate --jq '.[] | select(.type == "merge_queue") | .type'); then
             if [[ -n "$queue" ]]; then
               echo 'active=true' >> "$GITHUB_OUTPUT"
             fi
@@ -57,13 +57,12 @@ jobs:
             echo "::warning::Could not confirm an active merge queue. Running the full suite."
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: checkout
         with:
           # The PR merge commit already has its exact base as a parent.
           fetch-depth: 2
           filter: blob:none
           persist-credentials: false
-      - name: Install pinned Bun
-        run: bash scripts/install-bun.sh
       - name: Run game checks
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -86,31 +85,54 @@ jobs:
             exit 1
           fi
           export GAME_CHECK_STARTED_MS
-          # Reserve two seconds of the 35 s job budget for runner finalization.
+          setup_deadline=$(( GAME_CHECK_STARTED_MS + 15000 ))
+          setup_overrun() {
+            echo "::error::Setup budget: failed before verification (15000 ms limit)."
+          }
+          remaining=$(( setup_deadline - $(date +%s%3N) ))
+          if (( remaining <= 0 )); then
+            setup_overrun
+            exit 1
+          fi
+          printf -v deadline '%d.%03ds' "$((remaining / 1000))" "$((remaining % 1000))"
+          if timeout --kill-after=1s "$deadline" bash scripts/install-bun.sh; then
+            export PATH="$RUNNER_TEMP/neon-bun:$PATH"
+          else
+            status=$?
+            if (( status == 124 || status == 137 || $(date +%s%3N) >= setup_deadline )); then
+              setup_overrun
+            fi
+            exit "$status"
+          fi
           export GAME_CHECK_DEADLINE_MS=$(( GAME_CHECK_STARTED_MS + 33000 ))
           remaining=$(( GAME_CHECK_DEADLINE_MS - $(date +%s%3N) ))
           if (( remaining <= 0 )); then
-            echo "::error::Setup reached the 33 s work cutoff. The job reserves 2 s for finalization."
+            echo "::error::Game checks reached the 33 s validation cutoff."
             exit 1
           fi
           printf -v deadline '%d.%03ds' "$((remaining / 1000))" "$((remaining % 1000))"
           timeout --kill-after=1s "$deadline" bun scripts/verify.ts "$mode" "$BASE_SHA" "$HEAD_SHA" --install-dependencies --install-chromium --check-committed
+      - name: Enforce elapsed validation budget
+        if: always()
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+        run: |
+          clock="$RUNNER_TEMP/game-check-start"
+          if [[ ! -f "$clock" ]]; then exit 0; fi
+          read -r GAME_CHECK_STARTED_MS < "$clock"
+          elapsed=$(( $(date +%s%3N) - GAME_CHECK_STARTED_MS ))
+          echo "Game checks runner elapsed before artifact handling: ${elapsed} ms (33000 ms validation cutoff)" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$CHECKOUT_OUTCOME" == failure ]] && (( elapsed >= 15000 )); then
+            echo "::error::Setup budget: checkout failed after the 15000 ms limit."
+            exit 1
+          fi
+          if (( elapsed >= 33000 )); then
+            echo "::error::Game checks reached the 33 s validation cutoff."
+            exit 1
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: browser-test-results
           path: test-results/
           retention-days: 7
-      - name: Enforce elapsed job budget
-        if: always()
-        run: |
-          clock="$RUNNER_TEMP/game-check-start"
-          # Run game checks reports an unavailable clock as the primary failure.
-          if [[ ! -f "$clock" ]]; then exit 0; fi
-          read -r GAME_CHECK_STARTED_MS < "$clock"
-          elapsed=$(( $(date +%s%3N) - GAME_CHECK_STARTED_MS ))
-          echo "Game checks runner elapsed: ${elapsed} ms (33000 ms work cutoff, 2000 ms reserved for finalization)" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed >= 33000 )); then
-            echo "::error::Game checks reached the 33 s work cutoff. The job reserves 2 s for finalization."
-            exit 1
-          fi

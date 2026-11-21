@@ -11,6 +11,8 @@ const checks = validationChecks(mode, base, head);
 const results = new Map<string, Promise<CheckResult>>();
 const exec = promisify(execFile);
 const jobStartedAt = process.env.GAME_CHECK_STARTED_MS;
+const setupStartedAt = Number(jobStartedAt);
+const setupBudget = 15_000;
 
 const budgets = new Map([
   ['Native lint', 1_000],
@@ -107,33 +109,38 @@ if (checks.types) {
   void run('TypeScript', 'bun', ['check'], dependencies);
 }
 
+function remainingSetupTime() {
+  const elapsed = Date.now() - setupStartedAt;
+  return elapsed >= 0 && elapsed < setupBudget ? setupBudget - elapsed : 0;
+}
+
 const chromium =
   options.includes('--install-chromium') && needsChromium
     ? run(
         'Chromium setup',
         'bun',
         ['--bun', 'playwright', 'install', '--only-shell', 'chromium'],
-        dependencies,
+        jobStartedAt
+          ? dependencies.then((status) => (status === 'passed' && !remainingSetupTime() ? 'blocked' : status))
+          : dependencies,
       )
     : dependencies;
 
 let browserSetup = chromium;
 if (jobStartedAt) {
-  const started = Number(jobStartedAt);
-  const budget = 15_000;
-  const elapsedAtLaunch = Date.now() - started;
-  const remaining = elapsedAtLaunch >= 0 && elapsedAtLaunch < budget ? budget - elapsedAtLaunch : 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<'expired'>((resolve) => {
-    timer = setTimeout(() => resolve('expired'), remaining);
+    timer = setTimeout(() => resolve('expired'), remainingSetupTime());
   });
   // The browser gate can fail at the deadline while installation still owns its output and result.
   browserSetup = Promise.race([chromium, deadline]).then((status) => {
     clearTimeout(timer);
-    const elapsed = Date.now() - started;
-    const withinBudget = status !== 'expired' && elapsed >= 0 && elapsed < budget;
+    const elapsed = Date.now() - setupStartedAt;
+    const withinBudget = status !== 'expired' && elapsed >= 0 && elapsed < setupBudget;
     if (withinBudget && status !== 'passed') return 'blocked';
-    console.log(`Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit ${budget} ms)`);
+    console.log(
+      `Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit ${setupBudget} ms)`,
+    );
     return withinBudget ? 'passed' : 'failed';
   });
   results.set('Setup budget', browserSetup);
