@@ -86,8 +86,8 @@ Every PR should:
 - Keep credentials, private logs, personal data, and local machine paths out of
   committed files and shared evidence.
 
-Use the Bun version pinned in `package.json`. Install dependencies with `bun install --frozen-lockfile`; use
-`bun run dev` for local development.
+Follow the [development setup](README.md#develop) to install the pinned Bun
+canary, verify its revision, and install project dependencies.
 
 For code, tooling, dependency, or build changes, run the full local validation:
 
@@ -96,9 +96,10 @@ bun --bun playwright install --only-shell chromium
 bun run verify
 ```
 
-This checks types, simulation, the production build, browser controls, and both
-site and standalone distribution paths. When build inputs change, run
-`bun run build` and commit the regenerated `play.html`; do not hand-edit it.
+This runs Landmines test lint, type checking, simulation tests, the production
+build, browser controls, and both site and standalone distribution tests.
+When build inputs change, run `bun run build` and commit the regenerated
+`play.html`; do not hand-edit it.
 
 For documentation-only changes, check links and formatting and run
 `git diff --check`. CI selects checks by changed surface; the stable

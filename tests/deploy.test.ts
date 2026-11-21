@@ -15,6 +15,7 @@ void test('deployment uploads only built files, assets before HTML, without an a
   const dir = await mkdtemp(join(tmpdir(), 'neon-deploy-'));
   const previous = process.cwd();
   const calls: { url: string; method: string; key: string; body: string }[] = [];
+  // oxlint-disable-next-line landmines-testing/no-test-doubles -- Inject fetch to verify uploads without a live CDN.
   const request: typeof fetch = async (input, init) => {
     assert.ok(init);
     calls.push({

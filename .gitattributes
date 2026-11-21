@@ -1,0 +1,2 @@
+# Use LF for formatter inputs and reproducible standalone builds.
+* text=auto eol=lf

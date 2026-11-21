@@ -1,38 +1,18 @@
 {
-  "env": {
-    "browser": true,
-    "node": true,
-    "es2024": true
-  },
-  "plugins": ["unicorn", "typescript", "oxc", "import", "node", "promise"],
   "categories": {
-    "correctness": "error",
-    "suspicious": "error",
-    "perf": "error",
-    "nursery": "error"
+    "correctness": "off"
   },
-  "rules": {
-    "no-underscore-dangle": "off",
-    "unicorn/prefer-add-event-listener": "off",
-    "typescript/no-unnecessary-condition": "off",
-    "typescript/no-unnecessary-type-parameters": "off",
-    "typescript/no-unsafe-type-assertion": "off",
-    "import/no-unassigned-import": [
-      "error",
-      {
-        "allow": ["**/*.css"]
-      }
-    ],
-    "typescript/no-unnecessary-boolean-literal-compare": "off",
-    "typescript/no-unnecessary-type-conversion": "off",
-    "typescript/no-useless-default-assignment": "off"
-  },
-  "overrides": [
+  "jsPlugins": [
     {
-      "files": ["scripts/deploy.ts", "tests/deploy.test.ts"],
-      "rules": {
-        "no-await-in-loop": "off"
-      }
+      "name": "landmines-testing",
+      "specifier": "@interfere/landmines/testing"
     }
-  ]
+  ],
+  "rules": {
+    "landmines-testing/no-fixed-sleep": "error",
+    "landmines-testing/no-flake-masking": "error",
+    "landmines-testing/no-test-doubles": "error",
+    "landmines-testing/no-unsignaled-poll": "error",
+    "landmines-testing/strict-msw": "error"
+  }
 }

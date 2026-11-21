@@ -1,15 +1,24 @@
+import { execFile, spawn } from 'node:child_process';
+import type { StdioOptions } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { validationChecks } from './ci.ts';
 import { recordTestInventory } from './test-inventory.ts';
 
-const [mode = 'full', base, head, install] = process.argv.slice(2);
+type CheckResult = 'passed' | 'failed' | 'blocked';
+
+const [mode = 'full', base, head, ...options] = process.argv.slice(2);
 const checks = validationChecks(mode, base, head);
-const results = new Map<string, Promise<boolean>>();
+const results = new Map<string, Promise<CheckResult>>();
+const exec = promisify(execFile);
+const jobStartedAt = process.env.GAME_CHECK_STARTED_MS;
+const setupStartedAt = Number(jobStartedAt);
+const setupBudget = 15_000;
 
 const budgets = new Map([
-  ['Lint', 1_000],
+  ['Native lint', 1_000],
   ['Format', 1_000],
   ['TypeScript', 5_000],
   ['Unit tests', 30_000],
@@ -17,104 +26,185 @@ const budgets = new Map([
   ['Distribution', 30_000],
 ]);
 
-function run(name: string, command: string, ...args: string[]): Promise<boolean> {
-  const started = performance.now();
-  return new Promise((resolve) => {
-    execFile(command, args, (error, stdout, stderr) => {
-      if (stdout) process.stdout.write(stdout);
-      if (stderr) process.stderr.write(stderr);
+function check(name: string, start: () => void | Promise<void>, ...prerequisites: Promise<CheckResult>[]) {
+  const result = Promise.all(prerequisites).then(async (ready): Promise<CheckResult> => {
+    if (ready.some((status) => status !== 'passed')) return 'blocked';
+
+    console.log(`${name}: started`);
+    const started = performance.now();
+    const budget = (jobStartedAt ? budgets.get(name) : undefined) ?? Infinity;
+    let overBudget = false;
+    const reportOverrun = () => {
+      if (overBudget) return;
+      overBudget = true;
       const elapsed = performance.now() - started;
-      const budget = budgets.get(name) ?? Infinity;
-      const failure = error
-        ? `failed (${error.code ?? error.signal ?? error.message})`
-        : elapsed >= budget
-          ? `failed (budget ${budget} ms)`
-          : 'passed';
-      console.log(`${name}: ${failure} in ${elapsed.toFixed(0)} ms`);
-      resolve(!error && elapsed < budget);
-    });
+      console.error(`${name}: failed (budget ${budget} ms) in ${elapsed.toFixed(0)} ms`);
+    };
+    // Keep collecting command output after a budget failure. The workflow owns termination.
+    const timer = budget === Infinity ? undefined : setTimeout(reportOverrun, budget);
+    try {
+      await start();
+      const elapsed = performance.now() - started;
+      if (elapsed >= budget) reportOverrun();
+      if (overBudget) return 'failed';
+      console.log(`${name}: passed in ${elapsed.toFixed(0)} ms`);
+      return 'passed';
+    } catch (error) {
+      const elapsed = performance.now() - started;
+      if (elapsed >= budget) reportOverrun();
+      console.error(
+        `${name}: failed (${error instanceof Error ? error.message : String(error)}) in ${elapsed.toFixed(0)} ms`,
+      );
+      return 'failed';
+    } finally {
+      clearTimeout(timer);
+    }
   });
+  results.set(name, result);
+  return result;
+}
+
+function run(name: string, command: string, args: string[], ...prerequisites: Promise<CheckResult>[]) {
+  return check(
+    name,
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const stdio: StdioOptions = ['ignore', 'inherit', 'inherit'];
+        const child = spawn(command, args, { stdio });
+        child.once('error', reject);
+        child.once('close', (code, signal) => {
+          if (code === 0) resolve();
+          else reject(new Error(signal ?? `exit code ${code}`));
+        });
+      }),
+    ...prerequisites,
+  );
 }
 
 const full = Object.values(checks).every(Boolean);
-const directory = 'test-results/timings';
+const timingDirectory = 'test-results/timings';
 const unitArgs = ['test', '--isolate', '--randomize'];
 if (full) {
-  rmSync(directory, { recursive: true, force: true });
-  mkdirSync(directory, { recursive: true });
-  process.env.NEON_TEST_TIMINGS_DIRECTORY = directory;
+  rmSync(timingDirectory, { recursive: true, force: true });
+  mkdirSync(timingDirectory, { recursive: true });
+  process.env.NEON_TEST_TIMINGS_DIRECTORY = timingDirectory;
   unitArgs.push(
-    `--timings=${join(directory, 'unit.json')}`,
+    `--timings=${join(timingDirectory, 'unit.json')}`,
     '--update-timings',
     '--reporter=junit',
-    `--reporter-outfile=${join(directory, 'unit-junit.xml')}`,
+    `--reporter-outfile=${join(timingDirectory, 'unit-junit.xml')}`,
   );
 } else {
   unitArgs.push('tests/ci.test.ts', 'scripts/pullfrog-command-check.test.ts');
   if (checks.simulation) unitArgs.push('tests/engine.test.ts');
   if (checks.deployment) unitArgs.push('tests/deploy.test.ts');
 }
-results.set('Unit tests', run('Unit tests', 'bun', ...unitArgs));
-results.set('Format', run('Format', 'bun', 'fmt', '--check'));
-results.set('Lint', run('Lint', 'bun', 'lint', '--type-aware', '--all', '--max-warnings', '0'));
-if (checks.types) results.set('TypeScript', run('TypeScript', 'bun', 'check'));
+void run('Unit tests', 'bun', unitArgs);
+void run('Format', 'bun', ['fmt', '--check']);
+const needsChromium = checks.browser || checks.distribution;
+const dependencies =
+  options.includes('--install-dependencies') && (checks.types || needsChromium)
+    ? run('Dependency install', 'bun', ['install', '--frozen-lockfile'])
+    : Promise.resolve<CheckResult>('passed');
+
+if (checks.types) {
+  void run('Test lint', 'bun', ['run', 'lint'], dependencies);
+  void run(
+    'Native lint',
+    'bun',
+    [
+      'lint',
+      '--no-script',
+      '--config',
+      '.oxlintrc.native.json',
+      '--type-aware',
+      '--all',
+      '--max-warnings',
+      '0',
+    ],
+    dependencies,
+  );
+  void run('TypeScript', 'bun', ['check'], dependencies);
+}
+
+function remainingSetupTime() {
+  const elapsed = Date.now() - setupStartedAt;
+  return elapsed >= 0 && elapsed < setupBudget ? setupBudget - elapsed : 0;
+}
 
 const chromium =
-  install === '--install-chromium' && (checks.browser || checks.distribution)
-    ? run('Chromium setup', 'bun', '--bun', 'playwright', 'install', '--only-shell', 'chromium')
-    : Promise.resolve(true);
-results.set('Chromium setup', chromium);
-if (process.env.GAME_CHECK_STARTED_MS) {
-  const started = Number(process.env.GAME_CHECK_STARTED_MS);
-  results.set(
-    'Setup budget',
-    chromium.then(() => {
-      const elapsed = Date.now() - started;
-      const withinBudget = elapsed >= 0 && elapsed < 15_000;
-      console.log(`Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit 15000 ms)`);
-      return withinBudget;
-    }),
-  );
+  options.includes('--install-chromium') && needsChromium
+    ? run(
+        'Chromium setup',
+        'bun',
+        ['--bun', 'playwright', 'install', '--only-shell', 'chromium'],
+        jobStartedAt
+          ? dependencies.then((status) => (status === 'passed' && !remainingSetupTime() ? 'blocked' : status))
+          : dependencies,
+      )
+    : dependencies;
+
+let browserSetup = chromium;
+if (jobStartedAt) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<'expired'>((resolve) => {
+    timer = setTimeout(() => resolve('expired'), remainingSetupTime());
+  });
+  // The browser gate can fail at the deadline while installation still owns its output and result.
+  browserSetup = Promise.race([chromium, deadline]).then((status) => {
+    clearTimeout(timer);
+    const elapsed = Date.now() - setupStartedAt;
+    const withinBudget = status !== 'expired' && elapsed >= 0 && elapsed < setupBudget;
+    if (withinBudget && status !== 'passed') return 'blocked';
+    console.log(
+      `Setup budget: ${withinBudget ? 'passed' : 'failed'} in ${elapsed} ms (limit ${setupBudget} ms)`,
+    );
+    return withinBudget ? 'passed' : 'failed';
+  });
+  results.set('Setup budget', browserSetup);
 }
 
 if (checks.browser) {
-  results.set(
-    'Browser controls',
-    chromium.then(
-      (ready) =>
-        ready && run('Browser controls', 'bun', 'run', 'test:browser', '--output=test-results/browser'),
-    ),
-  );
+  void run('Browser controls', 'bun', ['run', 'test:browser', '--output=test-results/browser'], browserSetup);
 }
 
 if (checks.distribution) {
-  const build = run('Production build', 'bun', 'run', 'build');
-  results.set('Production build', build);
-  results.set(
-    'Standalone parity',
-    build.then(
-      (ready) =>
-        ready &&
-        run('Standalone parity', 'bash', '-o', 'pipefail', '-c', 'git show HEAD:play.html | cmp - play.html'),
-    ),
-  );
-  results.set(
+  const build = run('Production build', 'bun', ['run', 'build'], dependencies);
+  if (options.includes('--check-committed')) {
+    void check(
+      'Standalone parity',
+      async () => {
+        const generated = await readFile('play.html');
+        const { stdout: committed } = await exec('git', ['cat-file', 'blob', 'HEAD:play.html'], {
+          encoding: 'buffer',
+          maxBuffer: Math.max(1024 * 1024, generated.length + 1),
+        });
+        if (!generated.equals(committed)) throw new Error('generated play.html differs from HEAD:play.html');
+      },
+      build,
+    );
+  }
+  void run(
     'Distribution',
-    Promise.all([build, chromium]).then(
-      ([built, browserReady]) =>
-        built &&
-        browserReady &&
-        run('Distribution', 'bun', 'run', 'test:distribution', '--output=test-results/distribution'),
-    ),
+    'bun',
+    ['run', 'test:distribution', '--output=test-results/distribution'],
+    build,
+    browserSetup,
   );
 }
 
-const failed = (
-  await Promise.all(Array.from(results, async ([name, result]) => ((await result) ? null : name)))
-).filter(Boolean);
+const completed = await Promise.all(
+  Array.from(results, async ([name, status]) => ({ name, status: await status })),
+);
+if (full && completed.every(({ status }) => status === 'passed')) {
+  const name = 'Test inventory';
+  const status = await check(name, () => recordTestInventory(timingDirectory));
+  completed.push({ name, status });
+}
+const failed = completed.filter((result) => result.status === 'failed').map((result) => result.name);
+const blocked = completed.filter((result) => result.status === 'blocked').map((result) => result.name);
 if (failed.length) {
   console.error(`Failed game checks: ${failed.join(', ')}`);
   process.exitCode = 1;
 }
-
-if (!failed.length && full) recordTestInventory(directory);
+if (blocked.length) console.error(`Blocked game checks: ${blocked.join(', ')}`);

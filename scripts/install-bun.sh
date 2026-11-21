@@ -8,7 +8,8 @@ archive=$(mktemp)
 trap 'rm -f "$archive"' EXIT
 directory="${RUNNER_TEMP:?}/neon-bun"
 mkdir -p "$directory"
-curl --fail --silent --show-error --location --output "$archive" \
+curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+  --retry 3 --retry-max-time 60 --output "$archive" \
   "https://registry.npmjs.org/@oven/bun-linux-x64/-/bun-linux-x64-$version.tgz"
 printf '%s  %s\n' "$digest" "$archive" | sha512sum --check --status
 tar -xzf "$archive" -C "$directory" --strip-components=2 package/bin/bun

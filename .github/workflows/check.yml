@@ -25,101 +25,121 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           clock="$RUNNER_TEMP/game-check-start"
+          echo "$(( $(date +%s%3N) + 15000 ))" > "$clock.wait-until"
           (
             set -euo pipefail
-            started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
-              --jq '.jobs[] | select(.name == "Game checks") | .started_at')
-            test -n "$started"
-            date -u -d "$started" +%s%3N > "$clock.partial"
-            mv "$clock.partial" "$clock"
+            if timeout --kill-after=1s 14s bash -c '
+              # Keep each request in the outer watchdog process group.
+              until started=$(timeout --foreground --kill-after=1s 3s gh api \
+                "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" --jq "$1") &&
+                [[ -n "$started" ]] && date -u -d "$started" +%s%3N; do
+                sleep 0.25
+              done
+            ' _ '.jobs[] | select(.name == "Game checks") | .started_at' > "$clock.partial"; then
+              mv "$clock.partial" "$clock"
+            else
+              echo "Could not read the job start time from GitHub."
+              touch "$clock.failed"
+            fi
           ) </dev/null >"$clock.log" 2>&1 &
+      - name: Detect the main merge queue
+        id: queue
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if queue=$(timeout --kill-after=1s 3s gh api "repos/$GH_REPO/rules/branches/main" --paginate --jq '.[] | select(.type == "merge_queue") | .type'); then
+            if [[ -n "$queue" ]]; then
+              echo 'active=true' >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "::warning::Could not confirm an active merge queue. Running the full suite."
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        id: checkout
         with:
           # The PR merge commit already has its exact base as a parent.
           fetch-depth: 2
           filter: blob:none
           persist-credentials: false
-      - name: Install pinned Bun
-        run: bash scripts/install-bun.sh
-      - name: Select affected surfaces
-        id: paths
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          # Narrow PR feedback only when an active queue will run the full suite.
-          mode=full
-          if [[ "$EVENT_NAME" == pull_request && "$BASE_REF" == main ]]; then
-            if queue=$(gh api "repos/$GH_REPO/rules/branches/main" --jq 'any(.[]; .type == "merge_queue")'); then
-              [[ "$queue" != true ]] || mode=selected
-            else
-              echo "::warning::Could not confirm an active merge queue. Running the full suite."
-            fi
-          fi
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
-      - name: Restore exact dependencies
-        id: dependencies
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: node_modules
-          key: node-modules-ubuntu26-${{ runner.arch }}-${{ hashFiles('bun.lock', 'scripts/install-bun.sh') }}
-      - name: Install dependencies
-        if: steps.dependencies.outputs.cache-hit != 'true'
-        run: bun install --frozen-lockfile
-      - name: Seed dependencies from main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.dependencies.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: node_modules
-          key: ${{ steps.dependencies.outputs.cache-primary-key }}
-      - name: Record dependency cache result
-        env:
-          CACHE_HIT: ${{ steps.dependencies.outputs.cache-hit }}
-        run: |
-          echo "Exact node_modules cache hit: ${CACHE_HIT:-false}" >> "$GITHUB_STEP_SUMMARY"
       - name: Run game checks
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.sha }}
-          MODE: ${{ steps.paths.outputs.mode }}
+          QUEUE_ACTIVE: ${{ steps.queue.outputs.active }}
         run: |
+          mode=full
+          if [[ "$QUEUE_ACTIVE" == true ]]; then
+            mode=selected
+          fi
           clock="$RUNNER_TEMP/game-check-start"
-          if ! read -r GAME_CHECK_STARTED_MS < "$clock"; then
-            cat "$clock.log"
+          if [[ ! -f "$clock" ]] && read -r wait_until < "$clock.wait-until"; then
+            while [[ ! -f "$clock" && ! -f "$clock.failed" ]] && (( $(date +%s%3N) < wait_until )); do
+              sleep 0.1
+            done
+          fi
+          if [[ ! -f "$clock" ]] || ! read -r GAME_CHECK_STARTED_MS < "$clock"; then
+            if [[ -s "$clock.log" ]]; then cat "$clock.log"; fi
             echo "::error::GitHub job start time is unavailable."
             exit 1
           fi
           export GAME_CHECK_STARTED_MS
-          # Reserve two seconds of the 35 s job budget for runner finalization.
-          remaining=$(( 33000 - ($(date +%s%3N) - GAME_CHECK_STARTED_MS) ))
+          setup_deadline=$(( GAME_CHECK_STARTED_MS + 15000 ))
+          setup_overrun() {
+            echo "::error::Setup budget: failed before verification (15000 ms limit)."
+          }
+          remaining=$(( setup_deadline - $(date +%s%3N) ))
           if (( remaining <= 0 )); then
-            echo "::error::Setup exhausted the required job budget."
+            setup_overrun
             exit 1
           fi
           printf -v deadline '%d.%03ds' "$((remaining / 1000))" "$((remaining % 1000))"
-          timeout --kill-after=1s "$deadline" bun scripts/verify.ts "$MODE" "$BASE_SHA" "$HEAD_SHA" --install-chromium
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+          if timeout --kill-after=1s "$deadline" bash scripts/install-bun.sh; then
+            export PATH="$RUNNER_TEMP/neon-bun:$PATH"
+          else
+            status=$?
+            if (( status == 124 || status == 137 || $(date +%s%3N) >= setup_deadline )); then
+              setup_overrun
+            fi
+            exit "$status"
+          fi
+          export GAME_CHECK_DEADLINE_MS=$(( GAME_CHECK_STARTED_MS + 33000 ))
+          remaining=$(( GAME_CHECK_DEADLINE_MS - $(date +%s%3N) ))
+          if (( remaining <= 0 )); then
+            echo "::error::Game checks reached the 33 s validation cutoff."
+            exit 1
+          fi
+          printf -v deadline '%d.%03ds' "$((remaining / 1000))" "$((remaining % 1000))"
+          timeout --kill-after=1s "$deadline" bun scripts/verify.ts "$mode" "$BASE_SHA" "$HEAD_SHA" --install-dependencies --install-chromium --check-committed
+      - name: Enforce elapsed validation budget
+        if: always()
+        env:
+          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+        run: |
+          clock="$RUNNER_TEMP/game-check-start"
+          if [[ ! -f "$clock" ]]; then exit 0; fi
+          read -r GAME_CHECK_STARTED_MS < "$clock"
+          elapsed=$(( $(date +%s%3N) - GAME_CHECK_STARTED_MS ))
+          echo "Game checks runner elapsed before artifact handling: ${elapsed} ms (33000 ms validation cutoff)" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$CHECKOUT_OUTCOME" == failure ]] && (( elapsed >= 15000 )); then
+            echo "::error::Setup budget: checkout failed after the 15000 ms limit."
+            exit 1
+          fi
+          if (( elapsed >= 33000 )); then
+            echo "::error::Game checks reached the 33 s validation cutoff."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: browser-test-results
           path: test-results/
           retention-days: 7
       - name: Record full-suite file timings
-        if: always() && !cancelled() && steps.paths.outputs.mode == 'full'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: success() && hashFiles('test-results/timings/files.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-file-timings
           path: test-results/timings/
           retention-days: 14
-      - name: Enforce elapsed job budget
-        if: always()
-        run: |
-          read -r GAME_CHECK_STARTED_MS < "$RUNNER_TEMP/game-check-start"
-          elapsed=$(( $(date +%s%3N) - GAME_CHECK_STARTED_MS ))
-          echo "Game checks runner elapsed: ${elapsed} ms (33 s plus finalization)" >> "$GITHUB_STEP_SUMMARY"
-          if (( elapsed >= 33000 )); then
-            echo "::error::Game checks exceeded the 35 s job budget."
-            exit 1
-          fi

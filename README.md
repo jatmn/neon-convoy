@@ -57,7 +57,15 @@ Every level has a distinct original looping synthwave arrangement, synthesized i
 
 ## Develop
 
-Requires Bun **1.4.6-canary.1** (revision `7bb427f3b`, pinned in `package.json`).
+Use npm to install the Bun canary pinned in [`package.json`](package.json).
+
+```sh
+npm install --global bun@1.4.5-canary.20261120.1
+bun --revision
+```
+
+The expected revision is `1.4.6-canary.1+7bb427f3b`. Then install the project
+dependencies and start the dev server.
 
 ```sh
 bun install --frozen-lockfile
@@ -91,11 +99,15 @@ bun --bun playwright install --only-shell chromium
 bun run verify
 ```
 
-Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs all local gates; individual commands are `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution` (after building).
+Simulation tests verify scripted solutions for all ten levels, persistent terrain edits, tool charges, steel resistance, safe-fall jets, scoring, pause/reset, loss conditions, and blocker release. Browser tests cover desktop and mobile controls, canvas rendering, tool assignment, terrain painting, dialogs, campaign navigation, audio state, and progress persistence. Strict TypeScript checking covers source, tests, scripts, and configuration. Distribution tests exercise the built site and offline standalone file on both viewport profiles. `bun run verify` runs `bun fmt --check`, native type-aware Bun lint, `bun run lint` (Landmines test lint), `bun check`, `bun test`, `bun run build`, `bun run test:browser`, and `bun run test:distribution`.
 
-Run `bun fmt` to format tracked source and documentation. Generated `play.html` is checked against a fresh build. Use `bun lint --type-aware --all --max-warnings 0` to run the required lint rules in `.oxlintrc.json`. The rules cover correctness, suspicious code, performance and new checks. Deployment tests and uploads intentionally sequence operations. Browser rules preserve CSS imports, typed DOM access and defensive conversions.
+Run `bun fmt` to format tracked source and documentation. Generated `play.html` is checked against a fresh build.
 
-Bun uses its TypeScript 7 checker and runs the scripts and isolated, randomized simulation tests. Vite builds the browser code. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
+Git can leave CRLF line endings in files an update leaves untouched. If the format check flags those files after updating a clean checkout, run `bun fmt` once to convert them to LF. `git diff` should show no content changes from the conversion.
+
+Use `bun lint --no-script --config .oxlintrc.native.json --type-aware --all --max-warnings 0` to run the native correctness, suspicious code, performance, and nursery rules. Deployment and the browser test for stable Play/Pause controls intentionally sequence operations. The configuration preserves CSS imports, typed DOM access, and defensive conversions.
+
+Bun uses its TypeScript 7 checker and runs the scripts and isolated, randomized unit tests. Vite builds the browser code. Use explicit `.ts` imports and erasable TypeScript syntax. Browser bundles and the generated `play.html` still contain JavaScript.
 
 If Chromium is already installed outside Playwright's expected location, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable before running browser tests.
 
@@ -103,25 +115,27 @@ If Chromium is already installed outside Playwright's expected location, set `PL
 
 GitHub Actions runs on pull requests (including forks), merge groups, and pushes to `main`. It uses read-only permissions and cancels superseded runs. Merge groups and main pushes run every check. Pull requests also run every check unless an active merge queue ruleset applies to `main`. When the queue is active, PR feedback uses the changed inputs below.
 
-| Changed surface                               | Checks                                            |
-| --------------------------------------------- | ------------------------------------------------- |
-| Documentation or screenshots                  | Routing and owner-command authorization           |
-| Simulation dependencies and shared game types | Types, simulation, browser controls, distribution |
-| UI, renderer, audio, or Vite config           | Types, browser controls, distribution             |
-| CSS, entry HTML, favicon, or public assets    | Browser controls, distribution                    |
-| Simulation test                               | Types and simulation                              |
-| Browser test                                  | Types and browser controls                        |
-| Standalone script, distribution test/config   | Types and distribution                            |
-| Project `LICENSE` or generated `play.html`    | Distribution                                      |
-| Shared Playwright config                      | Types, browser controls, distribution             |
-| Uploader code/tests                           | Types and uploader regression tests               |
-| Deployment workflow                           | Uploader regression tests                         |
-| Routing code/tests                            | Routing and types                                 |
-| Toolchain, configs, or unclassified paths     | All checks                                        |
+Format and owner-command authorization run in both full and selected modes. In the table, Types includes TypeScript, Landmines test lint, and native type-aware Bun lint.
 
-Mixed changes run the union of their checks. Bun's module graph identifies the simulation imports. An unavailable graph or computed reference runs simulation. All checks rerun for package and lock files, Bun, TypeScript, lint and workflow configuration, AGENTS.md, and any path without a known owner. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job installs the pinned Playwright Chromium shell once and retains browser failure artifacts for seven days. It runs independent checks in parallel, rebuilds and checks that committed `play.html` is current; run `bun run build` and commit the result whenever build inputs change.
+| Changed surface                                            | Checks                                            |
+| ---------------------------------------------------------- | ------------------------------------------------- |
+| Documentation or screenshots                               | Routing                                           |
+| TypeScript simulation dependencies and shared game types   | Types, simulation, browser controls, distribution |
+| UI, renderer, audio, or Vite config                        | Types, browser controls, distribution             |
+| CSS, entry HTML, favicon, Git attributes, or public assets | Browser controls, distribution                    |
+| Simulation test                                            | Types and simulation                              |
+| Browser test                                               | Types and browser controls                        |
+| Standalone script, distribution test/config                | Types and distribution                            |
+| Project `LICENSE` or generated `play.html`                 | Distribution                                      |
+| Shared Playwright config                                   | Types, browser controls, distribution             |
+| Uploader code/tests                                        | Types and uploader regression tests               |
+| Deployment workflow                                        | Uploader regression tests                         |
+| Routing code/tests                                         | Routing and types                                 |
+| Shared tooling, lint configuration, or unclassified paths  | All checks                                        |
 
-Require the stable **Game checks** status for `main`. In a public organization repository, add the merge queue to the same active ruleset with no bypass actors. The queue validates the combined commit against the latest base before it can merge. An unavailable rules lookup results in full PR validation. Full runs publish test-file timings and fail for missing or skipped tests or a test file at or above 20 seconds. The suite fits in one shard. GitHub-managed CodeQL and third-party integrations have their own scheduling.
+Mixed changes run the union of their checks. Bun's module graph adds simulation when a changed path is a simulation dependency. Changed symlinks, deletions, and file type changes also run simulation because the head graph can omit the changed path after an import is redirected. When the graph is unavailable or a computed reference can hide a dependency, the simulation suite runs. All checks run for package manifests and JS or TS resolver configs, including nested and inherited configs. An unresolved config inheritance chain also runs all checks. The same full validation applies to lockfiles, Bun, lint and check workflow configuration, `AGENTS.md`, and any path without a known owner. Owner-command authorization tests run on every PR and `main` push, including changes to the helper, its tests, and the Pullfrog workflow. Simulation needs no dependency installation. The required job shares one dependency install when a selected check needs packages. Browser and distribution checks share one pinned Playwright Chromium headless shell installation, and browser failure artifacts are retained for seven days. The job runs independent checks in parallel. For distribution it rebuilds and checks that committed `play.html` is current. Run `bun run build` and commit the result whenever build inputs change.
+
+Require the stable **Game checks** status for `main`. In a public organization repository, add the merge queue to the same active ruleset with no bypass actors. The queue validates the combined commit against the latest base before it can merge. An unavailable rules lookup results in full PR validation. Full validation checks that every tracked test file ran, rejects skips and retries, and requires each file to finish in under 20 seconds across all configured projects. Successful full CI runs publish the `test-file-timings` artifact. GitHub-managed CodeQL and third-party integrations have their own scheduling.
 
 ## Project layout
 
