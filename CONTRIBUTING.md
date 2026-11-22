@@ -89,6 +89,14 @@ Every PR should:
 Follow the [development setup](README.md#develop) to install the pinned Bun
 canary, verify its revision, and install project dependencies.
 
+Install [hk](https://hk.jdx.dev/) 2.13.0 and Pkl, then run
+`git config --local core.hooksPath .githooks` in the checkout to enable the repository's hooks.
+The pre-commit hook formats and lints staged files. For a commit limited to named paths,
+it checks formatting without changing files. If needed, run `bun fmt -- <paths>` before retrying.
+The pre-push hook installs pinned
+dependencies and Chromium for each distinct commit at a pushed ref tip, skipping Git notes refs,
+then runs the full game checks in a separate checkout with a 20-second verification budget per commit.
+
 For code, tooling, dependency, or build changes, run the full local validation:
 
 ```sh

@@ -7,7 +7,7 @@ const jobDeadline = Number(process.env.GAME_CHECK_DEADLINE_MS);
 const suiteDeadline = jobDeadline ? jobDeadline - 2_000 : 0;
 const startupDeadline = suiteDeadline ? suiteDeadline - 2_000 : 0;
 const serverTimeout = 30_000;
-export const webServerTimeout = startupDeadline
+const webServerTimeout = startupDeadline
   ? Math.max(1, Math.min(serverTimeout, startupDeadline - Date.now()))
   : serverTimeout;
 
@@ -18,6 +18,27 @@ export function timingReporter(suite: string): PlaywrightTestConfig['reporter'] 
   const directory = process.env.NEON_TEST_TIMINGS_DIRECTORY;
   return directory ? [['line'], ['json', { outputFile: resolve(directory, `${suite}.json`) }]] : undefined;
 }
+
+const isolatedServers = process.env.NEON_ISOLATE_TEST_SERVERS === '1';
+
+export function gameServer(script: 'dev' | 'preview', port: number) {
+  const baseURL = isolatedServers ? undefined : `http://127.0.0.1:${port}`;
+  return {
+    baseURL,
+    webServer: {
+      command: `bun run ${script} --host 127.0.0.1 --port ${isolatedServers ? 0 : port} --strictPort`,
+      url: baseURL,
+      // Vite reports the kernel-assigned listener before Playwright starts the test workers.
+      wait: isolatedServers
+        ? { stdout: /(?<PLAYWRIGHT_TEST_BASE_URL>http:\/\/127\.0\.0\.1:\d+)\// }
+        : undefined,
+      reuseExistingServer: !isolatedServers && !process.env.CI,
+      timeout: webServerTimeout,
+    },
+  };
+}
+
+const server = gameServer('dev', 4173);
 
 export default defineConfig({
   testDir: './tests',
@@ -30,7 +51,7 @@ export default defineConfig({
   workers: process.env.CI ? 2 : undefined,
   expect: { timeout: 5_000 },
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: server.baseURL,
     trace: 'retain-on-failure',
     // The shared page fixture caps failure screenshots when the job is timed.
     screenshot: jobDeadline ? 'off' : 'only-on-failure',
@@ -42,10 +63,5 @@ export default defineConfig({
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile', use: { ...devices['Pixel 7'] } },
   ],
-  webServer: {
-    command: 'bun run dev --host 127.0.0.1 --port 4173 --strictPort',
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
-    timeout: webServerTimeout,
-  },
+  webServer: server.webServer,
 });
