@@ -11,30 +11,47 @@ const shutdownTimeout = 2_000;
 const objectId = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const windows = process.platform === 'win32';
 
+const interruptSignals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+const interruption = new AbortController();
+const interrupt = () => interruption.abort();
+
 class CheckoutProcessError extends Error {}
 
 function pushedCommits(input: string) {
   const objects = new Set<string>();
   for (const line of input.split('\n')) {
-    if (!line.trim()) continue;
-    // Git preserves the source expression, which can include spaces.
-    const fields = line.trim().split(/\s+/);
+    if (!line) continue;
+    // Git separates the fields with single ASCII spaces. The source expression can contain more of them,
+    // and ref names can contain other whitespace.
+    const fields = line.split(' ');
     const local = fields.at(-3);
+    const remoteRef = fields.at(-2);
     const remote = fields.at(-1);
-    if (fields.length < 4 || !local || !remote || !objectId.test(local) || !objectId.test(remote))
+    if (
+      fields.length < 4 ||
+      !local ||
+      !remoteRef ||
+      !remote ||
+      !objectId.test(local) ||
+      !objectId.test(remote)
+    )
       throw new Error('Pre-push received an invalid Git ref update');
+    // Notes refs record annotations, not game snapshots.
+    if (remoteRef.startsWith('refs/notes/')) continue;
     if (!/^0+$/.test(local)) objects.add(local);
   }
   if (!objects.size) return new Set<string>();
 
+  const requested = [...objects];
   const peeled = execFileSync('git', ['cat-file', '--batch-check=%(objectname) %(objecttype)'], {
     encoding: 'utf8',
-    input: [...objects].map((oid) => `${oid}^{}\n`).join(''),
+    input: requested.map((oid) => `${oid}^{}\n`).join(''),
   });
   const commits = new Set<string>();
-  for (const line of peeled.trimEnd().split('\n')) {
+  // Batch output follows input order; a missing object echoes its peel expression instead of an ID.
+  for (const [index, line] of peeled.trimEnd().split('\n').entries()) {
     const [oid, type] = line.split(' ');
-    if (type === 'missing') throw new Error(`Pushed Git object is missing: ${oid}`);
+    if (type === 'missing') throw new Error(`Pushed Git object is missing: ${requested[index]}`);
     if (type === 'commit') commits.add(oid);
   }
   return commits;
@@ -126,6 +143,8 @@ async function runCommand(
   options: { cwd: string; env: NodeJS.ProcessEnv },
   timeout: number,
 ) {
+  const label = [command, ...args].join(' ');
+  if (interruption.signal.aborted) throw new Error(`${label} was interrupted`);
   const child = spawn(command, args, { ...options, detached: !windows, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.pipe(process.stdout, { end: false });
   child.stderr.pipe(process.stderr, { end: false });
@@ -134,14 +153,12 @@ async function runCommand(
     child.once('close', (code, signal) => resolve(signal ?? code));
   });
   const controller = new AbortController();
-  const interrupt = () => controller.abort();
-  process.once('SIGINT', interrupt);
-  process.once('SIGTERM', interrupt);
-  const label = [command, ...args].join(' ');
   try {
     const outcome = await Promise.race([
       closed,
-      delay(timeout, 'timed out', { signal: controller.signal }).catch(() => 'was interrupted'),
+      delay(timeout, 'timed out', {
+        signal: AbortSignal.any([controller.signal, interruption.signal]),
+      }).catch(() => 'was interrupted'),
     ]);
     if (outcome === 'timed out' || outcome === 'was interrupted') {
       try {
@@ -159,8 +176,6 @@ async function runCommand(
     if (outcome !== 0) throw new Error(`${label} failed (${outcome})`);
   } finally {
     controller.abort();
-    process.off('SIGINT', interrupt);
-    process.off('SIGTERM', interrupt);
   }
 }
 
@@ -176,6 +191,8 @@ async function verifyCommit(commit: string, source: string, env: NodeJS.ProcessE
       options,
       setupTimeout,
     );
+    // Git clones a shallow source over its transport, which copies only objects its refs reach.
+    await runCommand('git', ['fetch', '--quiet', '--no-tags', '--', source, commit], options, setupTimeout);
     await runCommand('git', ['checkout', '--quiet', '--detach', commit], options, setupTimeout);
     await runCommand(process.execPath, ['install', '--frozen-lockfile'], options, setupTimeout);
     await runCommand(
@@ -211,10 +228,16 @@ async function verifyTips(input: string) {
   for (const name of localEnv.trim().split(/\s+/)) delete env[name];
   delete env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 
-  // One snapshot at a time keeps the per-commit setup and verification budgets independent.
-  let verification = Promise.resolve();
-  for (const commit of commits) verification = verification.then(() => verifyCommit(commit, source, env));
-  await verification;
+  // Every interrupt, including a repeated one, must stop verification and remove its snapshot.
+  for (const signal of interruptSignals) process.on(signal, interrupt);
+  try {
+    // One snapshot at a time keeps the per-commit setup and verification budgets independent.
+    let verification = Promise.resolve();
+    for (const commit of commits) verification = verification.then(() => verifyCommit(commit, source, env));
+    await verification;
+  } finally {
+    for (const signal of interruptSignals) process.off(signal, interrupt);
+  }
 }
 
 await verifyTips(readFileSync(0, 'utf8'));

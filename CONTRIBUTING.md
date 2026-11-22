@@ -94,8 +94,8 @@ Install [hk](https://hk.jdx.dev/) 2.13.0 and Pkl, then run
 The pre-commit hook formats and lints staged files. For a commit limited to named paths,
 it checks formatting without changing files. If needed, run `bun fmt -- <paths>` before retrying.
 The pre-push hook installs pinned
-dependencies and Chromium for each distinct pushed commit, then runs the full game checks
-in a separate checkout with a 20-second verification budget per commit.
+dependencies and Chromium for each distinct commit at a pushed ref tip, skipping Git notes refs,
+then runs the full game checks in a separate checkout with a 20-second verification budget per commit.
 
 For code, tooling, dependency, or build changes, run the full local validation:
 
