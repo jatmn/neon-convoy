@@ -1,3 +1,4 @@
+import { isAuthorizedReview } from './pullfrog-review-check.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
@@ -180,4 +181,73 @@ void test('invalid issue and comment identifiers fail closed', () => {
       assert.equal(result.output, '');
     }
   }
+});
+
+const reviewOwner = { id: 12479882, login: 'jatmn' };
+const api = { apiUrl: 'https://api.github.test', repository: 'jatmn/neon-convoy', token: 'fixture-token' };
+const review = (trigger = 'pull_request_opened', details: Record<string, unknown> = {}) => ({
+  '~pullfrog': true,
+  event: { trigger, is_pr: true, issue_number: 7, ...details },
+});
+
+const reviewCases = [
+  ['pull_request_opened', false],
+  ['pull_request_opened', true],
+  ['pull_request_ready_for_review', false],
+  ['pull_request_synchronize', true],
+] as const;
+for (const [trigger, draft] of reviewCases) {
+  void test(`authorizes an owner ${trigger} event with draft=${draft}`, async (t) => {
+    const fetch = t.mock.method(
+      globalThis,
+      'fetch',
+      async (url: string, options: { headers: Record<string, string>; signal: AbortSignal }) => {
+        assert.equal(url, 'https://api.github.test/repos/jatmn/neon-convoy/pulls/7');
+        assert.equal(options.headers.Authorization, 'Bearer fixture-token');
+        assert.ok(options.signal instanceof AbortSignal);
+        return Response.json({ user: reviewOwner, draft });
+      },
+    );
+    assert.equal(await isAuthorizedReview({ ...review(trigger), triggerer: 'other' }, api), true);
+    assert.equal(fetch.mock.callCount(), 1);
+  });
+}
+
+void test('rejects unrelated dispatches before the GitHub lookup', async (t) => {
+  const fetch = t.mock.method(globalThis, 'fetch');
+  const rejected = await Promise.all([
+    isAuthorizedReview(review('issue_comment_created'), api),
+    isAuthorizedReview(review(undefined, { issue_number: '7' }), api),
+    isAuthorizedReview(review(undefined, { is_pr: false }), api),
+  ]);
+  assert.deepEqual(rejected, [false, false, false]);
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
+for (const user of [
+  { ...reviewOwner, id: 1 },
+  { ...reviewOwner, login: 'someone-else' },
+]) {
+  void test(`rejects non-owner author ${user.login}/${user.id} even on an owner push`, async (t) => {
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ user }));
+    const dispatch = { ...review('pull_request_synchronize'), triggerer: 'jatmn' };
+    assert.equal(await isAuthorizedReview(dispatch, api), false);
+  });
+}
+
+void test('retries temporary lookup errors', async (t) => {
+  const failures = [new DOMException('timed out', 'TimeoutError'), new Response(null, { status: 503 })];
+  const fetch = t.mock.method(globalThis, 'fetch', async () => {
+    const result = failures.shift();
+    if (result instanceof Error) throw result;
+    return result ?? Response.json({ user: reviewOwner });
+  });
+  assert.equal(await isAuthorizedReview(review(), api), true);
+  assert.equal(fetch.mock.callCount(), 3);
+});
+
+void test('stops on rate limits and access errors', async (t) => {
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 403 }));
+  await assert.rejects(isAuthorizedReview(review(), api), /Could not verify PR #7 author/);
+  assert.equal(fetch.mock.callCount(), 1);
 });
