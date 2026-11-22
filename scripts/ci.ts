@@ -20,7 +20,7 @@ const ownedInputs = [
   /^(?:LICENSE|play\.html|playwright\.distribution\.config\.ts)$/,
   /^src\/(?:audio|engine|env\.d|levels|main|renderer|types)\.ts$|^src\/style\.css$|^public\//,
   /^tests\/(?:engine\.test|browser\.spec|distribution\.spec|deploy\.test|ci\.test)\.ts$/,
-  /^scripts\/(?:ci|deploy|standalone|pullfrog-command-check(?:\.test)?)\.ts$/,
+  /^scripts\/(?:ci|deploy|standalone|pullfrog-command-check(?:\.test)?|pullfrog-review-check)\.ts$/,
   /^\.github\/workflows\/deploy\.yml$/,
 ];
 
