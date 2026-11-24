@@ -15,7 +15,7 @@
     "test:distribution": "bun --bun playwright test --config playwright.distribution.config.ts"
   },
   "devDependencies": {
-    "@interfere/landmines": "0.1.0",
+    "@interfere/landmines": "0.1.1",
     "@playwright/test": "1.65.1",
     "@types/node": "26.6.6",
     "oxlint": "1.94.0",
